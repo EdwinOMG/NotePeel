@@ -8,26 +8,28 @@ from app.models.note import Note, ProcessingStatus
 from app.models.user import User
 from app.schemas.note_schema import NoteUpdate
 
-# Import OCR service
 import sys
 sys.path.insert(0, '..')
 from ocr_service import extract_structured_text
 
 
+def clean(text: str) -> str:
+    """Strip physical line breaks so text reflows naturally in HTML."""
+    return ' '.join(text.split())
+
+
 class NoteController:
-    """Controller for note operations."""
-    
+
     @staticmethod
     async def create_note(
         db: Session,
         file: UploadFile,
         user: User,
-        title: Optional[str] = None
+        title: Optional[str] = None,
+        note_type: str = "default"
     ) -> Note:
-        """Create a new note from an uploaded image."""
         file_content = await file.read()
-        
-        # Create note record
+
         note = Note(
             title=title or file.filename,
             original_image=file_content,
@@ -36,111 +38,294 @@ class NoteController:
             status=ProcessingStatus.PROCESSING,
             owner_id=user.id
         )
-        
         db.add(note)
         db.commit()
         db.refresh(note)
-        
-        # Perform OCR
-        try:
-            ocr_result = extract_structured_text(file_content)
-            
-            # Build raw_text from the new structured format
-            text_parts = []
-            
-            # Add headers
-            if ocr_result.get('headers'):
-                text_parts.extend(ocr_result['headers'])
-            
-            # Add paragraphs
-            if ocr_result.get('paragraphs'):
-                text_parts.extend(ocr_result['paragraphs'])
-            
-            # Add bullet points
-            if ocr_result.get('bullet_points'):
-                text_parts.extend(ocr_result['bullet_points'])
-            
-            # Add key-values (now it's a list or dict)
-            key_values = ocr_result.get('key_values', {})
-            if isinstance(key_values, dict):
-                for k, v in key_values.items():
-                    text_parts.append(f"{k}: {v}")
-            elif isinstance(key_values, list):
-                text_parts.extend([str(kv) for kv in key_values])
-            
-            # Add tables
-            if ocr_result.get('tables'):
-                for table in ocr_result['tables']:
-                    if isinstance(table, list):
-                        for row in table:
-                            if isinstance(row, list):
-                                text_parts.append(' | '.join(row))
-                            else:
-                                text_parts.append(str(row))
-            
-            # Add sections content
-            if ocr_result.get('sections'):
-                for section in ocr_result['sections']:
-                    if section.get('title'):
-                        text_parts.append(section['title'])
-                    for item in section.get('content', []):
-                        if isinstance(item, dict) and item.get('text'):
-                            text_parts.append(item['text'])
-            
-            raw_text = '\n'.join(text_parts) if text_parts else ''
-            
-            if not raw_text and ocr_result.get('raw_text'):
-                raw_text = ocr_result['raw_text']
 
-            note.raw_text = raw_text
-            note.structured_text = raw_text
+        try:
+            ocr_result = extract_structured_text(file_content, note_type=note_type)
+
+            if ocr_result.get('error'):
+                raise Exception(ocr_result['error'])
+
+            elements = ocr_result.get('elements', [])
+
+            sorted_elements = sorted(
+                elements,
+                key=lambda e: (
+                    e.get('position', {}).get('y_percent', 0),
+                    e.get('position', {}).get('x_percent', 0)
+                )
+            )
+
+            cleaned_elements = NoteController._clean_elements(sorted_elements)
+            structured_html = NoteController._build_html(cleaned_elements)
+
+            if not structured_html:
+                raw_text = ocr_result.get('raw_text', '')
+                structured_html = raw_text.replace('\n', '<br>')
+
+            note.raw_text = ocr_result.get('raw_text', '')
+            note.structured_text = structured_html
             note.status = ProcessingStatus.COMPLETED
             note.processed_at = datetime.utcnow()
-            
+
             db.commit()
             db.refresh(note)
-            
+
         except Exception as e:
             note.status = ProcessingStatus.FAILED
             note.error_message = str(e)
             db.commit()
             db.refresh(note)
-        
+
         return note
-    
+
     @staticmethod
-    def get_notes(
-        db: Session,
-        user: User,
-        skip: int = 0,
-        limit: int = 100
-    ) -> List[Note]:
-        """Get all notes for a user."""
+    def _clean_elements(elements: list) -> list:
+        """
+        Post-process OCR elements to fix common Gemini misclassifications.
+
+        1. Drop triangle/arrow diagram elements that sit near a box-container
+           text element — they are decorative connectors, not real diagrams.
+        2. Drop diagram elements whose region already has a real text element.
+        """
+        box_elements = [
+            e for e in elements
+            if e.get('container') == 'box' and e.get('type') != 'diagram'
+        ]
+
+        def is_connector_shape(el: dict) -> bool:
+            if el.get('type') != 'diagram':
+                return False
+            shape = el.get('diagram', {}).get('shape', 'none')
+            if shape not in ('triangle', 'arrow', 'none'):
+                return False
+            el_y = el.get('position', {}).get('y_percent', 0)
+            el_x = el.get('position', {}).get('x_percent', 0)
+            for box_el in box_elements:
+                box_y = box_el.get('position', {}).get('y_percent', 0)
+                box_x = box_el.get('position', {}).get('x_percent', 0)
+                if abs(el_x - box_x) < 20 and abs(el_y - box_y) < 25:
+                    return True
+            return False
+
+        text_regions = set(
+            e.get('position', {}).get('region', '')
+            for e in elements
+            if e.get('type') != 'diagram'
+        )
+
+        def is_duplicate_region_diagram(el: dict) -> bool:
+            if el.get('type') != 'diagram':
+                return False
+            return el.get('position', {}).get('region', '') in text_regions
+
+        return [
+            e for e in elements
+            if not is_connector_shape(e) and not is_duplicate_region_diagram(e)
+        ]
+
+    @staticmethod
+    def _element_to_html(element: dict) -> str:
+        """Convert a single OCR element to an HTML string."""
+        el_type = element.get('type', '')
+        content = clean(element.get('content', ''))
+        container = element.get('container', 'none')
+        style = element.get('style', {})
+        children = element.get('children', [])
+
+        box_css = (
+            'border: 2px solid #5D4037; border-radius: 4px; '
+            'padding: 12px 16px; background: #fff; margin: 10px 0; '
+            'display: inline-block; max-width: 100%;'
+        )
+        circled_css = (
+            'border: 2px solid #FF9800; border-radius: 50px; '
+            'padding: 4px 16px; display: inline-block; margin: 6px 0;'
+        )
+        underline_css = 'border-bottom: 2px solid #FF9800; padding-bottom: 3px;'
+
+        if el_type == 'header':
+            size = '1.5em' if style.get('is_large') else '1.2em'
+            base = (
+                f'font-size: {size}; color: #3E2723; margin: 20px 0 10px; '
+                f'text-transform: uppercase; letter-spacing: 0.06em;'
+            )
+            if container == 'box':
+                return f'<div style="{box_css}"><h2 style="{base} margin:0;">{content}</h2></div>'
+            if container == 'circled':
+                return f'<div style="{circled_css}"><h2 style="{base} margin:0;">{content}</h2></div>'
+            if container == 'underlined':
+                return f'<h2 style="{base} {underline_css}">{content}</h2>'
+            return f'<h2 style="{base}">{content}</h2>'
+
+        elif el_type == 'bullet_list':
+            bullets = ''.join([
+                f'<div style="display:flex;gap:10px;margin-bottom:6px;line-height:1.75;">'
+                f'<span style="color:#FF9800;font-weight:bold;flex-shrink:0;">◆</span>'
+                f'<span>{clean(child)}</span></div>'
+                for child in children
+            ])
+            if container == 'box':
+                return f'<div style="{box_css}">{bullets}</div>'
+            if container == 'circled':
+                return f'<div style="{circled_css}">{bullets}</div>'
+            return f'<div style="margin:12px 0;">{bullets}</div>'
+
+        elif el_type == 'key_value':
+            parts = content.split(':', 1)
+            inner = (
+                f'<span style="color:#FF9800;font-weight:bold;text-transform:uppercase;'
+                f'letter-spacing:0.05em;">{parts[0]}:</span> {parts[1]}'
+                if len(parts) == 2 else content
+            )
+            if container == 'box':
+                return f'<div style="{box_css}">{inner}</div>'
+            return f'<div style="margin:8px 0;line-height:1.75;">{inner}</div>'
+
+        elif el_type == 'diagram':
+            diagram = element.get('diagram', {})
+            desc = clean(diagram.get('description', content))
+            labels = diagram.get('labels', [])
+            labels_html = (
+                f'<div style="margin-top:6px;color:#FF9800;font-size:0.9em;">'
+                f'Labels: {", ".join(clean(l) for l in labels)}</div>'
+                if labels else ''
+            )
+            return (
+                f'<div style="border:2px dashed #FFB74D;border-radius:8px;'
+                f'padding:16px;margin:12px 0;background:#FFF8E1;'
+                f'font-style:italic;color:#5D4037;">'
+                f'📊 {desc}{labels_html}</div>'
+            )
+
+        else:
+            weight = 'bold' if style.get('is_bold') else 'normal'
+            base_p = f'margin:10px 0;line-height:1.75;font-weight:{weight};'
+
+            if container == 'box':
+                return (
+                    f'<div style="{box_css} font-weight:{weight};line-height:1.75;">'
+                    f'{content}</div>'
+                )
+            if container == 'circled':
+                return (
+                    f'<div style="{circled_css} font-weight:{weight};line-height:1.75;">'
+                    f'{content}</div>'
+                )
+            if container == 'underlined':
+                return f'<p style="{base_p}{underline_css}">{content}</p>'
+            return f'<p style="{base_p}">{content}</p>'
+
+    @staticmethod
+    def _build_html(sorted_elements: list) -> str:
+        """
+        Reconstruct the note layout in exact reading order.
+
+        - Groups elements into horizontal bands by overlapping y positions
+        - Single-element bands render full width
+        - Multi-element bands with left+right elements render as CSS grid
+          using the actual x_percent positions for proportional column widths
+        - Multi-element bands all in same column render in x order
+        """
+        if not sorted_elements:
+            return ''
+
+        # Group into horizontal bands
+        bands: list = []
+        current_band: list = []
+
+        for el in sorted_elements:
+            pos = el.get('position', {})
+            y = pos.get('y_percent', 0)
+
+            if not current_band:
+                current_band.append(el)
+                continue
+
+            band_bottom = max(
+                e.get('position', {}).get('y_percent', 0) +
+                e.get('position', {}).get('height_percent', 5)
+                for e in current_band
+            )
+
+            if y < band_bottom + 5:
+                current_band.append(el)
+            else:
+                bands.append(current_band)
+                current_band = [el]
+
+        if current_band:
+            bands.append(current_band)
+
+        # Render each band
+        html_parts = []
+
+        for band in bands:
+            if len(band) == 1:
+                html_parts.append(NoteController._element_to_html(band[0]))
+                continue
+
+            left_els = [e for e in band if 'left' in e.get('position', {}).get('region', '')]
+            right_els = [e for e in band if 'right' in e.get('position', {}).get('region', '')]
+
+            if left_els and right_els:
+                # Use actual x positions for proportional column widths
+                # The right column's x_percent tells us where it starts on the page
+                right_x = min(e.get('position', {}).get('x_percent', 50) for e in right_els)
+                left_x = min(e.get('position', {}).get('x_percent', 0) for e in left_els)
+
+                # Clamp to reasonable range so columns never collapse
+                right_x = max(20, min(80, right_x))
+                left_fr = round(right_x - left_x)
+                right_fr = round(100 - right_x)
+
+                # Ensure neither column is zero
+                if left_fr <= 0:
+                    left_fr = 50
+                if right_fr <= 0:
+                    right_fr = 50
+
+                left_html = ''.join(NoteController._element_to_html(e) for e in left_els)
+                right_html = ''.join(NoteController._element_to_html(e) for e in right_els)
+
+                html_parts.append(
+                    f'<div style="display:grid;grid-template-columns:{left_fr}fr {right_fr}fr;'
+                    f'gap:24px;margin:12px 0;">'
+                    f'<div>{left_html}</div>'
+                    f'<div>{right_html}</div>'
+                    f'</div>'
+                )
+            else:
+                # All in same column — render left to right
+                for el in sorted(band, key=lambda e: e.get('position', {}).get('x_percent', 0)):
+                    html_parts.append(NoteController._element_to_html(el))
+
+        return ''.join(html_parts)
+
+    @staticmethod
+    def get_notes(db: Session, user: User, skip: int = 0, limit: int = 100) -> List[Note]:
         return db.query(Note).filter(
             Note.owner_id == user.id
         ).order_by(Note.created_at.desc()).offset(skip).limit(limit).all()
-    
+
     @staticmethod
     def get_note(db: Session, note_id: int, user: User) -> Note:
-        """Get a specific note by ID."""
         note = db.query(Note).filter(
             Note.id == note_id,
             Note.owner_id == user.id
         ).first()
-        
         if not note:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Note not found"
             )
-        
         return note
-    
+
     @staticmethod
     def get_note_with_image(db: Session, note_id: int, user: User) -> dict:
-        """Get a note with its image as base64."""
         note = NoteController.get_note(db, note_id, user)
-        
         return {
             "id": note.id,
             "title": note.title,
@@ -157,24 +342,19 @@ class NoteController:
             "created_at": note.created_at,
             "processed_at": note.processed_at,
         }
-    
+
     @staticmethod
     def update_note(db: Session, note_id: int, update_data: NoteUpdate, user: User) -> Note:
-        """Update a note."""
         note = NoteController.get_note(db, note_id, user)
-        
         update_dict = update_data.model_dump(exclude_unset=True)
         for field, value in update_dict.items():
             setattr(note, field, value)
-        
         db.commit()
         db.refresh(note)
-        
         return note
-    
+
     @staticmethod
     def delete_note(db: Session, note_id: int, user: User) -> None:
-        """Delete a note."""
         note = NoteController.get_note(db, note_id, user)
         db.delete(note)
         db.commit()

@@ -13,7 +13,7 @@ class NoteUpdate(BaseModel):
 
 
 class NoteResponse(BaseModel):
-    """Schema for note response (without image)."""
+    """Schema for note response."""
     id: int
     title: Optional[str]
     image_filename: Optional[str]
@@ -40,7 +40,7 @@ class NoteWithText(BaseModel):
 
 
 class NoteWithImage(BaseModel):
-    """Schema for note with image as base64."""
+    """Schema for note with image."""
     id: int
     title: Optional[str]
     image_filename: Optional[str]
@@ -48,8 +48,13 @@ class NoteWithImage(BaseModel):
     image_base64: str
     raw_text: Optional[str]
     structured_text: Optional[str]
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    tags: Optional[str] = None
     status: str
+    error_message: Optional[str] = None
     created_at: datetime
+    processed_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

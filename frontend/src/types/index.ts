@@ -40,9 +40,3 @@ export interface NoteWithImage extends Note {
   raw_text: string;
   structured_text: string;
 }
-
-export interface OCRResult {
-  raw_text: string;
-  key_values: Record<string, string>;
-  table_rows: string[][];
-}

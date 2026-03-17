@@ -1,289 +1,139 @@
-from google.cloud import vision
-from typing import Dict, List, Any, Optional
+import os
+import json
 import re
-from ocr_config import DEFAULT_CONFIG, OCRConfig
-from image_preprocessing import preprocess_image
 
-print("OCR SERVICE LOADED")
-client = vision.ImageAnnotatorClient()
+from google import genai
 
-class DocumentStructureAnalyzer:
-    def __init__(self, config: OCRConfig = DEFAULT_CONFIG):
-        self.config = config # initialize with a configuration
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
-    
-
-    def is_section_header(self, text: str, position_y: Optional[float] = None,
-                     position_x: Optional[float] = None,
-                     page_width: Optional[float] = None,
-                     font_size: Optional[float] = None,
-                     avg_font_size: Optional[float] = None) -> bool:
-    
-        # must have data
-        if not font_size or not avg_font_size:
-            return False
-        
-        # font is atleast 2x average size
-        is_large = font_size >= (avg_font_size * 2.0)
-        
-        # if text is centered on page
-        is_centered = False
-        if position_x is not None and page_width:
-            center_ratio = position_x / page_width
-            is_centered = 0.3 <= center_ratio <= 0.7  
-        
-        # must meet both or be very large
-        is_very_large = font_size >= (avg_font_size * 2.5)
-        
-        result = (is_large and is_centered) or is_very_large
-        
-        if result and self.config.DEBUG_MODE:
-            print(f"Section header detected: '{text}' (font: {font_size}, avg: {avg_font_size}, centered: {is_centered})")
-        
-        return result
-    
-
-    #Determine if a line is a bullet point
-    def is_bullet_point(self, text: str) -> bool:
-        for pattern in self.config.BULLET_PATTERNS:
-            if re.match(pattern, text, re.IGNORECASE):
-                if self.config.DEBUG_MODE:
-                    print(f"Bullet point detected: '{text}'")
-                return True
-        return False
-    
-    #determine table rows
-    def is_table_row(self, words: List[str]) -> bool:
-        
-        
-        # must have minimum columns
-        if len(words) < self.config.MIN_TABLE_COLUMNS:
-            return False
-        
-        # check for numbers (more common in tables)
-        num_numeric = sum(1 for word in words if any(char.isdigit() for char in word))
-        numeric_ratio = num_numeric / len(words)
-        
-        # check for delimiters (tabs, pipes) that often indicate table structure
-        delimiter_count = sum(
-            1 for word in words 
-            for delimiter in self.config.TABLE_DELIMITERS 
-            if delimiter in word
-        )
-        has_delimiters = delimiter_count >= 2  # need at least 2 delimiter instances
-        
-        # check if words are reasonably short (cells are usually concise)
-        avg_word_length = sum(len(w) for w in words) / len(words)
-        if avg_word_length > 10:  # too long for word length
-            return False
-        
-        # must have BOTH high numeric content AND delimiters
-        is_table = (numeric_ratio >= self.config.TABLE_NUMERIC_THRESHOLD) and has_delimiters
-        
-        if is_table and self.config.DEBUG_MODE:
-            print(f"Table row detected: '{' '.join(words)}'")
-        
-        return is_table
-
-
-
-
-    #check if text is key value pair
-    def is_key_value_pair(self, text: str) -> tuple[bool, Optional[str], Optional[str]]:
-
-        if ":" not in text:
-            return False, None, None
-        
-        parts = text.split(":", 1)
-        if len(parts) != 2:
-            return False, None, None
-        
-        key, value = parts  
-        key_stripped = key.strip()
-        value_stripped = value.strip()
-
-        # key must be short
-        if len(key_stripped.split()) > self.config.MAX_KEY_WORDS:
-            return (False, None, None)
-        
-        # value must have something in it
-        if len(value_stripped.split()) < self.config.MIN_VALUE_WORDS:
-            return (False, None, None)
-        
-        # check if key starts with common prefixes
-        key_lower = key_stripped.lower()
-        is_common_key = any(
-            key_lower.startswith(prefix) 
-            for prefix in self.config.KEY_PREFIXES
-        )
-
-        if is_common_key or len(key_stripped.split()) <= 3:
-            if self.config.DEBUG_MODE:
-                print(f"Key-value pair detected: {key_stripped} : {value_stripped}")
-            return (True, key_stripped, value_stripped)
-        
-        return (False, None, None)
-    
-    #check if text is a paragraph by length
-    def is_paragraph(self, text: str) -> bool:
-        words = text.split()
-        return (len(words) >= self.config.MIN_PARAGRAPH_WORDS and len(text) >= self.config.MIN_PARAGRAPH_CHARS)
-    
-
-
-
-
-
-
-
-
-#extract structured text from image bytes using google vision, using configurable header and section detection
-def extract_structured_text(image_bytes: bytes, config: OCRConfig = DEFAULT_CONFIG) -> Dict[str, Any]:
-    
-    if config.USE_IMAGE_PREPROCESSING:
-        print("Image preprocessing ENABLED")
-        preprocessed_images = preprocess_image(image_bytes)
-        
-        all_results = []
-        for img_bytes in preprocessed_images:
-            image = vision.Image(content=img_bytes)
-            response = client.document_text_detection(image=image)
-            if not response.error.message:
-                all_results.append(response)
-        
-        response = max(all_results, key=lambda r: len(r.full_text_annotation.text) if r.full_text_annotation.text else 0)
+def detect_image_type(image_bytes: bytes) -> str:
+    """Detect image type from bytes without imghdr."""
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    elif image_bytes[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return "image/webp"
     else:
-        print("Image preprocessing DISABLED - using original image")
-        image = vision.Image(content=image_bytes)
-        response = client.document_text_detection(image=image)
-    
-    if response.error.message:
-        raise Exception(f"Google Vision API error: {response.error.message}")
-    
-    full_text = response.full_text_annotation.text
+        return "image/jpeg"  # Default fallback
 
-    for artifact in config.OCR_ARTIFACTS: 
-        full_text = full_text.replace(artifact, " ")
-    
-    lines = [line.strip(config.STRIP_CHARS) for line in full_text.split('\n') if line.strip()]
 
-    # init analyzer with configurations
-    analyzer = DocumentStructureAnalyzer(config)
+LAYOUT_PROMPT = """
+Analyze this handwritten note image and return ONLY a valid JSON object describing both the content AND the physical layout.
 
-    # get font and spatial information
-    font_sizes = []
-    line_positions = {}
-    page_height = None
+The JSON must have an "elements" array where each element represents a distinct visual region on the page.
 
-    if response.full_text_annotation.pages:
-        for page in response.full_text_annotation.pages:
-            if page.height:
-                page_height = page.height
+Each element must have:
+- "id": unique number starting from 1
+- "type": one of ["header", "paragraph", "bullet_list", "key_value", "diagram", "table", "label"]
+- "content": the transcribed text (or diagram description if type is diagram)
+- "container": one of ["box", "underlined", "circled", "arrow", "none"]
+    - "box" = a rectangular border is drawn AROUND this text block
+    - "underlined" = the text has a line drawn underneath it
+    - "circled" = a circle is drawn around this text block
+    - "none" = no border around this text block
+- "position": object with:
+    - "region": rough location e.g. "top-left", "top-right", "top-center", "middle-left", "middle-right", "middle-center", "bottom-left", "bottom-right", "bottom-center"
+    - "x_percent": left edge as % of page width (0-100)
+    - "y_percent": top edge as % of page height (0-100)
+    - "width_percent": width as % of page width (0-100)
+    - "height_percent": height as % of page height (0-100)
+- "style": object with:
+    - "is_bold": true/false
+    - "is_large": true/false
+    - "is_underlined": true/false
+- "children": for bullet_list, array of bullet strings. Empty array otherwise.
+- "connected_to": array of element ids this element points to via arrows. Empty array otherwise.
+- "diagram": ONLY include this field when type is "diagram". It must be an object with:
+    - "description": plain text description of what is drawn
+    - "location": where on the page (e.g. "bottom-left")
+    - "shape": one of ["rectangle", "circle", "triangle", "diamond", "arrow", "none"]
+        - Pick the single most dominant shape in the diagram
+        - Use "none" only if no clear geometric shape exists
+    - "labels": list of ALL text strings found inside or directly labeling the shape
 
-            #get paragraph text
-            for block in page.blocks:
-                for paragraph in block.paragraphs:
-                    para_text = ""
-                    for word in paragraph.words:
-                        word_text = ''.join([symbol.text for symbol in word.symbols])
-                        para_text += word_text + " "
-                    para_text = para_text.strip()
+Also include at the top level:
+- "page_layout": one of ["single_column", "two_column", "mixed"]
+- "raw_text": full verbatim transcription in reading order
 
-                    #store position
-                    if paragraph.bounding_box.vertices:
-                        y_pos = paragraph.bounding_box.vertices[0].y
-                        line_positions[para_text] = y_pos
+IMPORTANT rules:
+- "container" refers to a border drawn around a TEXT element — not the shape of a diagram
+- If a text section has a rectangle drawn around it, set container to "box" (not type "diagram")
+- If you see a hand-drawn rectangle/box with TEXT inside it, do NOT set type to "diagram".
+  Set type to "paragraph" (or "bullet_list" etc) and set container to "box".
+  The "diagram" type is ONLY for drawings or illustrations that contain NO readable text.
+- A triangle or arrow pointing to or sitting above a text box is NOT a diagram. Ignore it entirely. Do NOT create any element for it at all — no diagram element, no labels, nothing.
+- Only create a "diagram" type element if the shape contains meaningful visual information that cannot be represented as text (e.g. a labeled scientific drawing, a graph, a flow chart with multiple nodes).
+- NEVER describe what you see visually. Never write "A hand-drawn box containing..." or "A triangular shape is above..." or "The image shows..." or "There is a...". The content field must ONLY contain the actual written text from the note, transcribed exactly.
+- The "labels" field of a diagram must ONLY contain actual text labels written inside or next to the diagram. Never put descriptive sentences in labels.
+- A header physically above only ONE column belongs to that column only. Set its x_percent, region, and width_percent to match that column, not the full page. Do NOT set width_percent above 80 for a header that sits above only one section.
+- Only set width_percent above 80 if the text literally spans the full width of the page.
+- Return ONLY the JSON object, no markdown, no explanation
+"""
 
-                    for word in paragraph.words:
-                        vertices = word.bounding_box.vertices
-                        if len(vertices) >= 3:
-                            height = vertices[2].y - vertices[0].y
-                            font_sizes.append(height)
-    avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else None
+PROMPTS = {
+    "default": LAYOUT_PROMPT,
+    "lecture": LAYOUT_PROMPT + """
+\nExtra instructions for lecture notes:
+- Transcribe equations exactly as written
+- Labeled diagrams should capture every label in diagram.labels
+- Defined terms should be type "key_value"
+""",
+    "meeting": LAYOUT_PROMPT + """
+\nExtra instructions for meeting notes:
+- Checkboxes: prefix content with [x] or [ ]
+- Action items should be type "bullet_list"
+- Capture names next to action items in content
+"""
+}
 
-    document_structure = {
-        "headers": [],
-        "sections": [],
-        "key_values": {},
-        "bullet_points": [],
-        "tables": [],
-        "paragraphs": []
+
+def extract_structured_text(image_bytes: bytes, note_type: str = "default") -> dict:
+    mime = detect_image_type(image_bytes)
+    prompt = PROMPTS.get(note_type, PROMPTS["default"])
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-lite",
+        contents=[
+            prompt,
+            {"inline_data": {"mime_type": mime, "data": image_bytes}}
+        ]
+    )
+
+    raw = response.text
+    if not raw:
+        reason = "empty response"
+        try:
+            reason = str(response.prompt_feedback) or reason
+        except Exception:
+            pass
+        return {
+            "elements": [],
+            "page_layout": "unknown",
+            "raw_text": "",
+            "error": f"Gemini returned no response ({reason})"
+        }
+
+    raw = raw.strip()
+    raw = re.sub(r"^```json\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+
+    try:
+        structured = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {
+            "elements": [],
+            "page_layout": "unknown",
+            "raw_text": raw,
+            "error": f"JSON parse failed: {str(e)}"
+        }
+
+    structured["metadata"] = {
+        "model": "gemini-2.5-flash-lite",
+        "note_type": note_type,
     }
-     
-    current_section = None
-    current_section_content = []
-    table_buffer = []
 
-    for i, line in enumerate(lines):
-        position_y = line_positions.get(line)
-
-        font_size = None 
-        if line in line_positions and font_sizes:
-            font_size = avg_font_size
-
-
-        
-
-        if analyzer.is_bullet_point(line):
-            document_structure["bullet_points"].append(line)
-            if config.SECTION_GROUPING_ENABLED:
-                current_section_content.append({"type": "bullet", "text": line})
-            continue
-
-        is_kv, key, value = analyzer.is_key_value_pair(line)
-        if is_kv and key and value:
-            document_structure["key_values"][key] = value
-            if config.SECTION_GROUPING_ENABLED:
-                current_section_content.append({
-                    "type": "key_value", 
-                    "key": key, 
-                    "value": value
-                })
-            continue
-
-        words = line.split()
-        if analyzer.is_table_row(words):
-            table_buffer.append(words)
-            continue
-        else:
-            if table_buffer:
-                document_structure["tables"].append(table_buffer)
-                if config.SECTION_GROUPING_ENABLED:
-                    current_section_content.append({
-                        "type": "table",
-                        "rows": table_buffer
-                    })
-                table_buffer = []
-        
-        if analyzer.is_paragraph(line):
-            document_structure["paragraphs"].append(line)
-            if config.SECTION_GROUPING_ENABLED:
-                current_section_content.append({
-                    "type": "paragraph",
-                    "text": line
-                })
-        else:
-            if config.SECTION_GROUPING_ENABLED:
-                current_section_content.append({
-                    "type": "other",
-                    "text": line
-                })
-    if config.SECTION_GROUPING_ENABLED and current_section:
-        document_structure["sections"].append({
-            "title": current_section,
-            "content": current_section_content
-        })
-
-    if table_buffer:
-        document_structure["tables"].append(table_buffer)
-        
-    document_structure["metadata"] = {
-        "total_lines": len(lines),
-        "avg_font_size": avg_font_size,
-        "page_height": page_height,
-        "config_used": config.__class__.__name__
-    }
-    document_structure["raw_text"] = full_text
-    return document_structure
-    
+    return structured

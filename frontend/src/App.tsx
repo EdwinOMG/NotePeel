@@ -10,7 +10,6 @@ function App() {
   const [userEmail, setUserEmail] = useState<string>('');
 
   useEffect(() => {
-    // Check if user is already logged in
     const token = localStorage.getItem('token');
     const savedEmail = localStorage.getItem('userEmail');
     
@@ -35,29 +34,14 @@ function App() {
   };
 
   if (page === 'login') {
-    return (
-      <Login
-        onLogin={handleLogin}
-        onSwitchToRegister={() => setPage('register')}
-      />
-    );
+    return <Login onLogin={handleLogin} onSwitchToRegister={() => setPage('register')} />;
   }
 
   if (page === 'register') {
-    return (
-      <Register
-        onRegister={handleLogin}
-        onSwitchToLogin={() => setPage('login')}
-      />
-    );
+    return <Register onRegister={handleLogin} onSwitchToLogin={() => setPage('login')} />;
   }
 
-  return (
-    <Dashboard
-      userEmail={userEmail}
-      onLogout={handleLogout}
-    />
-  );
+  return <Dashboard userEmail={userEmail} onLogout={handleLogout} />;
 }
 
 export default App;

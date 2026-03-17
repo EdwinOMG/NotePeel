@@ -1,53 +1,61 @@
 from datetime import datetime, timedelta
 from typing import Optional
-import jwt
-import bcrypt
 from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
+import bcrypt
 
-from app.config import get_settings
 from app.database import get_db
+from app.config import get_settings
 from app.models.user import User
-from app.schemas.user_schema import UserCreate, TokenData
+from app.schemas.user_schema import UserCreate, Token
 
 settings = get_settings()
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+security = HTTPBearer()
 
 
 class AuthController:
     """Controller for authentication operations."""
     
     @staticmethod
-    def verify_password(plain_password: str, hashed_password: str) -> bool:
-        """Verify a password against its hash."""
-        return bcrypt.checkpw(
-            plain_password.encode('utf-8'), 
-            hashed_password.encode('utf-8')
-        )
-    
-    @staticmethod
     def hash_password(password: str) -> str:
         """Hash a password."""
         salt = bcrypt.gensalt()
-        hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-        return hashed.decode('utf-8')
+        return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    
+    @staticmethod
+    def verify_password(plain_password: str, hashed_password: str) -> bool:
+        """Verify a password against a hash."""
+        return bcrypt.checkpw(
+            plain_password.encode('utf-8'),
+            hashed_password.encode('utf-8')
+        )
     
     @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
         """Create a JWT access token."""
         to_encode = data.copy()
-        
-        if expires_delta:
-            expire = datetime.utcnow() + expires_delta
-        else:
-            expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-        
+        expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
         to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-        
-        return encoded_jwt
+        return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    
+    @staticmethod
+    def decode_token(token: str) -> dict:
+        """Decode and verify a JWT token."""
+        try:
+            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired"
+            )
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
     
     @staticmethod
     def get_user_by_email(db: Session, email: str) -> Optional[User]:
@@ -55,84 +63,91 @@ class AuthController:
         return db.query(User).filter(User.email == email).first()
     
     @staticmethod
-    def get_user_by_username(db: Session, username: str) -> Optional[User]:
-        """Get a user by username."""
-        return db.query(User).filter(User.username == username).first()
+    def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
+        """Get a user by ID."""
+        return db.query(User).filter(User.id == user_id).first()
     
     @staticmethod
     def create_user(db: Session, user_data: UserCreate) -> User:
         """Create a new user."""
+        # Check if email exists
         if AuthController.get_user_by_email(db, user_data.email):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered"
             )
         
-        if AuthController.get_user_by_username(db, user_data.username):
+        # Check if username exists
+        if db.query(User).filter(User.username == user_data.username).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already taken"
             )
         
+        # Create user
         hashed_password = AuthController.hash_password(user_data.password)
-        db_user = User(
+        user = User(
             email=user_data.email,
             username=user_data.username,
             hashed_password=hashed_password
         )
         
-        db.add(db_user)
+        db.add(user)
         db.commit()
-        db.refresh(db_user)
+        db.refresh(user)
         
-        return db_user
+        return user
     
     @staticmethod
     def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-        """Authenticate a user by email and password."""
+        """Authenticate a user."""
         user = AuthController.get_user_by_email(db, email)
-        
         if not user:
             return None
         if not AuthController.verify_password(password, user.hashed_password):
             return None
-        
         return user
-
-
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-) -> User:
-    """Dependency to get the current authenticated user."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        user_id = payload.get("sub")
-        if user_id is not None:
-            user_id = int(user_id)
-        email = payload.get("email")
+    @staticmethod
+    def login(db: Session, email: str, password: str) -> Token:
+        """Login and return token."""
+        user = AuthController.authenticate_user(db, email, password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password"
+            )
         
-        if user_id is None:
-            raise credentials_exception
-            
-        token_data = TokenData(user_id=user_id, email=email)
-    except jwt.PyJWTError:
-        raise credentials_exception
-    
-    user = db.query(User).filter(User.id == token_data.user_id).first()
-    
-    if user is None:
-        raise credentials_exception
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
-    
-    return user
+        access_token = AuthController.create_access_token(
+            data={"sub": str(user.id), "email": user.email}
+        )
+        
+        return Token(access_token=access_token, token_type="bearer")
 
 
 auth_controller = AuthController()
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """Dependency to get the current authenticated user."""
+    token = credentials.credentials
+    payload = AuthController.decode_token(token)
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
+    
+    user = AuthController.get_user_by_id(db, int(user_id))
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    
+    return user

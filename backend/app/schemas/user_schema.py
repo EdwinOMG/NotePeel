@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class UserCreate(BaseModel):
-    """Schema for creating a new user."""
+    """Schema for user registration."""
     email: EmailStr
     username: str
     password: str
@@ -29,12 +29,12 @@ class UserResponse(BaseModel):
 
 
 class Token(BaseModel):
-    """Schema for JWT token response."""
+    """Schema for JWT token."""
     access_token: str
-    token_type: str = "bearer"
+    token_type: str
 
 
 class TokenData(BaseModel):
-    """Schema for token payload data."""
+    """Schema for token data."""
     user_id: Optional[int] = None
     email: Optional[str] = None

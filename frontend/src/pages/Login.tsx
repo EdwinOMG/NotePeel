@@ -54,13 +54,7 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
         </div>
         
         {error && (
-          <div style={{
-            background: '#ffebee',
-            color: '#c62828',
-            padding: '10px',
-            borderRadius: '6px',
-            marginBottom: '20px'
-          }}>
+          <div style={{ background: '#ffebee', color: '#c62828', padding: '10px', borderRadius: '6px', marginBottom: '20px' }}>
             {error}
           </div>
         )}
@@ -70,16 +64,7 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '12px',
-            marginBottom: '15px',
-            border: '2px solid #FFE082',
-            borderRadius: '8px',
-            fontSize: '16px',
-            boxSizing: 'border-box',
-            outline: 'none'
-          }}
+          style={{ width: '100%', padding: '12px', marginBottom: '15px', border: '2px solid #FFE082', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box', outline: 'none' }}
         />
         <input
           type="password"
@@ -87,16 +72,7 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-          style={{
-            width: '100%',
-            padding: '12px',
-            marginBottom: '20px',
-            border: '2px solid #FFE082',
-            borderRadius: '8px',
-            fontSize: '16px',
-            boxSizing: 'border-box',
-            outline: 'none'
-          }}
+          style={{ width: '100%', padding: '12px', marginBottom: '20px', border: '2px solid #FFE082', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box', outline: 'none' }}
         />
         
         <button
@@ -120,10 +96,7 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
         
         <p style={{ textAlign: 'center', margin: 0, color: '#8D6E63' }}>
           Don't have an account?{' '}
-          <span
-            onClick={onSwitchToRegister}
-            style={{ color: '#FF9800', cursor: 'pointer', fontWeight: 'bold' }}
-          >
+          <span onClick={onSwitchToRegister} style={{ color: '#FF9800', cursor: 'pointer', fontWeight: 'bold' }}>
             Sign Up
           </span>
         </p>

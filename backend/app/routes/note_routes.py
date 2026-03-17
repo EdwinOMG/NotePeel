@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,11 +15,12 @@ router = APIRouter(prefix="/api/notes", tags=["Notes"])
 async def upload_note(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
+    note_type: str = Query(default="default", enum=["default", "lecture", "meeting"]),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload and process a note."""
-    note = await note_controller.create_note(db, file, current_user, title)
+    """Upload and process a note with Gemini AI."""
+    note = await note_controller.create_note(db, file, current_user, title, note_type)
     return {
         "id": note.id,
         "title": note.title,
