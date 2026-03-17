@@ -23,7 +23,10 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
   const [noteType, setNoteType] = useState<'default' | 'lecture' | 'meeting'>('default');
-  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,10 +49,36 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
     }
   };
 
+  // Search with debounce
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredNotes(notes);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await notesAPI.search(searchQuery);
+        setFilteredNotes(results);
+      } catch {
+        setFilteredNotes(notes.filter(n =>
+          (n.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (n.subject || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (n.tags || '').toLowerCase().includes(searchQuery.toLowerCase())
+        ));
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, notes]);
+
   const loadNotes = async () => {
     try {
       const data = await notesAPI.getAll();
       setNotes(data);
+      setFilteredNotes(data);
     } catch (err) {
       console.error('Failed to load notes:', err);
     } finally {
@@ -704,18 +733,54 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Notes Panel (toggleable) */}
         {showNotesPanel && (
-          <div style={{ width: '250px', background: 'white', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ width: '280px', background: 'white', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '15px', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#5D4037', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>📁 Your Notes ({notes.length})</span>
+              <span>Your Notes ({filteredNotes.length})</span>
               <button onClick={() => setShowNotesPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+            </div>
+            {/* Search Bar */}
+            <div style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="Search notes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 32px 8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    background: '#f9f9f9',
+                  }}
+                />
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#888' }}
+                  >
+                    ✕
+                  </button>
+                ) : (
+                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#aaa', pointerEvents: 'none' }}>
+                    🔍
+                  </span>
+                )}
+              </div>
+              {isSearching && <div style={{ fontSize: '11px', color: '#888', marginTop: '4px', textAlign: 'center' }}>Searching...</div>}
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
               {loading ? (
                 <p style={{ color: '#888', fontSize: '13px', padding: '10px' }}>Loading...</p>
-              ) : notes.length === 0 ? (
-                <p style={{ color: '#888', fontSize: '13px', padding: '10px' }}>No notes yet. Upload one!</p>
+              ) : filteredNotes.length === 0 ? (
+                <p style={{ color: '#888', fontSize: '13px', padding: '10px' }}>
+                  {searchQuery ? 'No notes match your search.' : 'No notes yet. Upload one!'}
+                </p>
               ) : (
-                notes.map(note => (
+                filteredNotes.map(note => (
                   <div
                     key={note.id}
                     onClick={() => viewNote(note)}
@@ -736,6 +801,20 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
                         <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
                           {new Date(note.created_at).toLocaleDateString()}
                         </div>
+                        {(note.subject || note.tags) && (
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                            {note.subject && (
+                              <span style={{ fontSize: '10px', background: '#FFF8E1', color: '#F57F17', padding: '1px 6px', borderRadius: '10px', border: '1px solid #FFE082' }}>
+                                {note.subject}
+                              </span>
+                            )}
+                            {note.tags && note.tags.split(',').slice(0, 2).map((tag, i) => (
+                              <span key={i} style={{ fontSize: '10px', background: '#E3F2FD', color: '#1565C0', padding: '1px 6px', borderRadius: '10px', border: '1px solid #90CAF9' }}>
+                                {tag.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }}

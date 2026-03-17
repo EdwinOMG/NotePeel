@@ -32,6 +32,27 @@ export interface Note {
   created_at: string;
   subject?: string;
   topic?: string;
+  tags?: string;
+}
+
+export interface Categories {
+  subjects: string[];
+  topics: string[];
+  tags: string[];
+}
+
+export interface Flashcard {
+  id: number;
+  question: string;
+  answer: string;
+}
+
+export interface FlashcardSet {
+  id: number;
+  note_id: number;
+  title: string;
+  cards: Flashcard[];
+  created_at: string;
 }
 
 export interface NoteWithImage extends Note {
