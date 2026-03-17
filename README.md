@@ -64,7 +64,6 @@ The app is split into three layers — a React frontend, a FastAPI backend, and 
 | AI / OCR | Google Gemini 2.5 Flash Lite |
 | Auth | JWT (PyJWT) + bcrypt password hashing |
 | Image Storage | Binary storage in PostgreSQL (LargeBinary) |
-| Containerization | Docker + Docker Compose |
 
 ---
 
@@ -287,16 +286,6 @@ npm install
 npm run dev
 # App available at http://localhost:5173
 ```
-
-### Docker (optional)
-
-If you have Docker installed you can run the whole stack with one command:
-
-```bash
-docker-compose up
-```
-
-This starts PostgreSQL, the backend, and the frontend together. Make sure you have a `.env` file in the `backend/` folder first.
 
 ---
 
