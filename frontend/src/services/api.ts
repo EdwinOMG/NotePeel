@@ -1,4 +1,4 @@
-import { UserCreate, UserLogin, AuthToken, User, Note, NoteWithImage } from '../types';
+import type { UserCreate, UserLogin, AuthToken, User, Note, NoteWithImage } from '../types';
 
 const API_URL = 'http://127.0.0.1:8000';
 

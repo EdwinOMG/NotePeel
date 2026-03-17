@@ -61,9 +61,16 @@ Also include at the top level:
 
 IMPORTANT rules:
 - "container" refers to a border drawn around a TEXT element — not the shape of a diagram
-- If there is a triangle/circle/diamond drawn as a DIAGRAM, set type to "diagram" and diagram.shape accordingly
 - If a text section has a rectangle drawn around it, set container to "box" (not type "diagram")
-- Do NOT set width_percent to less than 80 for elements that visually span most of the page width
+- If you see a hand-drawn rectangle/box with TEXT inside it, do NOT set type to "diagram".
+  Set type to "paragraph" (or "bullet_list" etc) and set container to "box".
+  The "diagram" type is ONLY for drawings or illustrations that contain NO readable text.
+- A triangle or arrow pointing to or sitting above a text box is NOT a diagram. Ignore it entirely. Do NOT create any element for it at all — no diagram element, no labels, nothing.
+- Only create a "diagram" type element if the shape contains meaningful visual information that cannot be represented as text (e.g. a labeled scientific drawing, a graph, a flow chart with multiple nodes).
+- NEVER describe what you see visually. Never write "A hand-drawn box containing..." or "A triangular shape is above..." or "The image shows..." or "There is a...". The content field must ONLY contain the actual written text from the note, transcribed exactly.
+- The "labels" field of a diagram must ONLY contain actual text labels written inside or next to the diagram. Never put descriptive sentences in labels.
+- A header physically above only ONE column belongs to that column only. Set its x_percent, region, and width_percent to match that column, not the full page. Do NOT set width_percent above 80 for a header that sits above only one section.
+- Only set width_percent above 80 if the text literally spans the full width of the page.
 - Return ONLY the JSON object, no markdown, no explanation
 """
 

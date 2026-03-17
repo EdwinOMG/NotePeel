@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { notesAPI } from '../services/api';
-import { Note, NoteWithImage } from '../types';
+import type { Note, NoteWithImage } from '../types';
 
 interface DashboardProps {
   userEmail: string;
@@ -790,7 +790,7 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
                 outline: 'none',
                 wordWrap: 'break-word',
                 overflowWrap: 'break-word',
-                whiteSpace: 'pre-wrap',
+                whiteSpace: 'normal',
               }}
               onKeyDown={handleKeyDown}
               onInput={updateCounts}
