@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import create_tables, get_db
 from app.routes.auth_routes import router as auth_router
 from app.routes.note_routes import router as note_router
+from app.routes.ai_routes import router as ai_router
 from app.controllers.auth_controller import get_current_user
 from app.models.user import User
 
@@ -35,6 +36,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(note_router)
+app.include_router(ai_router)
 
 
 @app.on_event("startup")

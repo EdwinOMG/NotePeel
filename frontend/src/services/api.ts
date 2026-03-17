@@ -1,4 +1,4 @@
-import type { UserCreate, UserLogin, AuthToken, User, Note, NoteWithImage } from '../types';
+import type { UserCreate, UserLogin, AuthToken, User, Note, NoteWithImage, Categories, FlashcardSet } from '../types';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -57,12 +57,34 @@ export const notesAPI = {
   },
   
   getAll: (): Promise<Note[]> => fetchWithAuth('/api/notes/'),
-    
+
+  search: (query: string, subject?: string, topic?: string): Promise<Note[]> => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (subject) params.set('subject', subject);
+    if (topic) params.set('topic', topic);
+    return fetchWithAuth(`/api/notes/search?${params.toString()}`);
+  },
+
+  getCategories: (): Promise<Categories> => fetchWithAuth('/api/notes/categories'),
+
   getById: (id: number): Promise<NoteWithImage> => fetchWithAuth(`/api/notes/${id}/full`),
-    
-  update: (id: number, data: { structured_text?: string; title?: string }): Promise<{ message: string }> =>
+
+  update: (id: number, data: { structured_text?: string; title?: string; subject?: string; topic?: string; tags?: string }): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    
+
   delete: (id: number): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  generateFlashcards: (noteId: number): Promise<FlashcardSet> =>
+    fetchWithAuth(`/api/ai/flashcards/${noteId}`, { method: 'POST' }),
+
+  getFlashcards: (noteId: number): Promise<FlashcardSet[]> =>
+    fetchWithAuth(`/api/ai/flashcards/${noteId}`),
+
+  summarize: (noteId: number): Promise<{ summary: string }> =>
+    fetchWithAuth(`/api/ai/summarize/${noteId}`, { method: 'POST' }),
+
+  explain: (text: string): Promise<{ explanation: string }> =>
+    fetchWithAuth('/api/ai/explain', { method: 'POST', body: JSON.stringify({ text }) }),
 };
