@@ -26,6 +26,18 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showFlashcards, setShowFlashcards] = useState(false);
+  const [flashcards, setFlashcards] = useState<{question: string; answer: string}[]>([]);
+  const [flashcardIndex, setFlashcardIndex] = useState(0);
+  const [flashcardFlipped, setFlashcardFlipped] = useState(false);
+  const [flashcardTitle, setFlashcardTitle] = useState('');
+  const [generatingFlashcards, setGeneratingFlashcards] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryText, setSummaryText] = useState('');
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [explanationText, setExplanationText] = useState('');
+  const [generatingExplanation, setGeneratingExplanation] = useState(false);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -276,6 +288,63 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
       } else {
         execCommand('hiliteColor', highlightColor);
       }
+    }
+  };
+
+  const handleGenerateFlashcards = async () => {
+    if (!selectedNote) return;
+    setGeneratingFlashcards(true);
+    setMessage('Generating flashcards with AI...');
+    try {
+      const result = await notesAPI.generateFlashcards(selectedNote.id);
+      setFlashcards(result.cards);
+      setFlashcardTitle(result.title);
+      setFlashcardIndex(0);
+      setFlashcardFlipped(false);
+      setShowFlashcards(true);
+      setMessage('');
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to generate flashcards'));
+    } finally {
+      setGeneratingFlashcards(false);
+    }
+  };
+
+  const handleSummarize = async () => {
+    if (!selectedNote) return;
+    setGeneratingSummary(true);
+    setMessage('Generating summary with AI...');
+    try {
+      const result = await notesAPI.summarize(selectedNote.id);
+      setSummaryText(result.summary);
+      setShowSummary(true);
+      setMessage('');
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to summarize'));
+    } finally {
+      setGeneratingSummary(false);
+    }
+  };
+
+  const handleExplain = async () => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim();
+    if (!text) {
+      setMessage('Select some text first, then click Explain.');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+    setGeneratingExplanation(true);
+    setMessage('Getting AI explanation...');
+    try {
+      const result = await notesAPI.explain(text);
+      setExplanationText(result.explanation);
+      setShowExplanation(true);
+      setMessage('');
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to explain'));
+    } finally {
+      setGeneratingExplanation(false);
     }
   };
 
@@ -560,6 +629,33 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
           )}
         </div>
 
+        {/* AI Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
+            style={{ padding: '6px 12px', background: activeMenu === 'ai' ? '#e0e0e0' : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#E65100' }}
+          >
+            AI Tools
+          </button>
+          {activeMenu === 'ai' && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '240px', zIndex: 1000 }}>
+              <div style={{...menuItemStyle, color: selectedNote ? '#333' : '#ccc'}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
+                <span>🃏 Generate Flashcards</span>
+                {generatingFlashcards && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
+              </div>
+              <div style={{...menuItemStyle, color: selectedNote ? '#333' : '#ccc'}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
+                <span>📋 Summarize Note</span>
+                {generatingSummary && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
+              </div>
+              <div style={{ borderTop: '1px solid #eee', margin: '4px 0' }} />
+              <div style={{...menuItemStyle}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
+                <span>💡 Explain Selection</span>
+                {generatingExplanation && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
+              </div>
+            </div>
+          )}
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -693,6 +789,61 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
         <button style={toolbarBtnStyle} onClick={() => execCommand('redo')} title="Redo (Ctrl+Y)">↪</button>
 
         <div style={{ flex: 1 }} />
+
+        {/* AI Quick Buttons */}
+        <button
+          onClick={handleGenerateFlashcards}
+          disabled={!selectedNote || generatingFlashcards}
+          style={{
+            padding: '6px 12px',
+            background: selectedNote ? '#E3F2FD' : '#f0f0f0',
+            color: selectedNote ? '#1565C0' : '#aaa',
+            border: '1px solid ' + (selectedNote ? '#90CAF9' : '#ddd'),
+            borderRadius: '4px',
+            cursor: selectedNote ? 'pointer' : 'not-allowed',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}
+          title="Generate Flashcards"
+        >
+          {generatingFlashcards ? '...' : '🃏 Flashcards'}
+        </button>
+        <button
+          onClick={handleSummarize}
+          disabled={!selectedNote || generatingSummary}
+          style={{
+            padding: '6px 12px',
+            background: selectedNote ? '#E8F5E9' : '#f0f0f0',
+            color: selectedNote ? '#2E7D32' : '#aaa',
+            border: '1px solid ' + (selectedNote ? '#A5D6A7' : '#ddd'),
+            borderRadius: '4px',
+            cursor: selectedNote ? 'pointer' : 'not-allowed',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}
+          title="Summarize Note"
+        >
+          {generatingSummary ? '...' : '📋 Summary'}
+        </button>
+        <button
+          onClick={handleExplain}
+          disabled={generatingExplanation}
+          style={{
+            padding: '6px 12px',
+            background: '#FFF3E0',
+            color: '#E65100',
+            border: '1px solid #FFCC80',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}
+          title="Explain selected text"
+        >
+          {generatingExplanation ? '...' : '💡 Explain'}
+        </button>
+
+        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
 
         {/* Save Button */}
         <button
@@ -878,6 +1029,115 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Flashcard Modal ── */}
+      {showFlashcards && flashcards.length > 0 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowFlashcards(false)}>
+          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', maxWidth: '550px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, color: '#5D4037', fontSize: '18px' }}>🃏 {flashcardTitle}</h2>
+              <button onClick={() => setShowFlashcards(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ display: 'flex', gap: '3px', marginBottom: '20px' }}>
+              {flashcards.map((_, i) => (
+                <div key={i} style={{ flex: 1, height: '4px', borderRadius: '2px', background: i <= flashcardIndex ? '#FF9800' : '#eee', transition: 'background 0.3s' }} />
+              ))}
+            </div>
+
+            {/* Card */}
+            <div
+              onClick={() => setFlashcardFlipped(!flashcardFlipped)}
+              style={{
+                minHeight: '200px',
+                background: flashcardFlipped ? 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)' : 'linear-gradient(135deg, #FFF8E1 0%, #FFE082 100%)',
+                borderRadius: '12px',
+                padding: '30px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                border: '2px solid ' + (flashcardFlipped ? '#A5D6A7' : '#FFB74D'),
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#888', marginBottom: '12px' }}>
+                {flashcardFlipped ? 'ANSWER' : 'QUESTION'} — Card {flashcardIndex + 1}/{flashcards.length}
+              </div>
+              <div style={{ fontSize: '18px', lineHeight: '1.6', color: '#333', fontWeight: flashcardFlipped ? 'normal' : '500' }}>
+                {flashcardFlipped ? flashcards[flashcardIndex].answer : flashcards[flashcardIndex].question}
+              </div>
+              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '16px' }}>
+                Click to {flashcardFlipped ? 'see question' : 'reveal answer'}
+              </div>
+            </div>
+
+            {/* Navigation */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px', alignItems: 'center' }}>
+              <button
+                onClick={() => { setFlashcardIndex(Math.max(0, flashcardIndex - 1)); setFlashcardFlipped(false); }}
+                disabled={flashcardIndex === 0}
+                style={{ padding: '8px 20px', border: '1px solid #ddd', borderRadius: '8px', background: flashcardIndex === 0 ? '#f5f5f5' : 'white', cursor: flashcardIndex === 0 ? 'not-allowed' : 'pointer', fontSize: '14px' }}
+              >
+                Previous
+              </button>
+              <span style={{ color: '#888', fontSize: '13px' }}>{flashcardIndex + 1} / {flashcards.length}</span>
+              <button
+                onClick={() => { setFlashcardIndex(Math.min(flashcards.length - 1, flashcardIndex + 1)); setFlashcardFlipped(false); }}
+                disabled={flashcardIndex === flashcards.length - 1}
+                style={{ padding: '8px 20px', border: 'none', borderRadius: '8px', background: flashcardIndex === flashcards.length - 1 ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', color: '#5D4037', cursor: flashcardIndex === flashcards.length - 1 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Summary Modal ── */}
+      {showSummary && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowSummary(false)}>
+          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, color: '#2E7D32', fontSize: '18px' }}>📋 AI Summary</h2>
+              <button onClick={() => setShowSummary(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+            </div>
+            <div style={{ background: '#E8F5E9', borderRadius: '12px', padding: '24px', lineHeight: '1.8', color: '#333', fontSize: '15px', whiteSpace: 'pre-wrap' }}>
+              {summaryText}
+            </div>
+            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(summaryText);
+                  setMessage('Summary copied to clipboard!');
+                  setTimeout(() => setMessage(''), 2000);
+                }}
+                style={{ padding: '8px 20px', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', color: '#2E7D32' }}
+              >
+                Copy to Clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Explanation Modal ── */}
+      {showExplanation && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowExplanation(false)}>
+          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', maxWidth: '550px', width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, color: '#E65100', fontSize: '18px' }}>💡 AI Explanation</h2>
+              <button onClick={() => setShowExplanation(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+            </div>
+            <div style={{ background: '#FFF3E0', borderRadius: '12px', padding: '24px', lineHeight: '1.8', color: '#333', fontSize: '15px', whiteSpace: 'pre-wrap' }}>
+              {explanationText}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status Bar */}
       <div style={{
