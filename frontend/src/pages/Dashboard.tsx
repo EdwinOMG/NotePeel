@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { notesAPI } from '../services/api';
-import type { Note, NoteWithImage } from '../types';
+import type { Note, NoteWithImage, Categories } from '../types';
 
 interface DashboardProps {
   userEmail: string;
@@ -38,6 +38,13 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
   const [showExplanation, setShowExplanation] = useState(false);
   const [explanationText, setExplanationText] = useState('');
   const [generatingExplanation, setGeneratingExplanation] = useState(false);
+  const [categories, setCategories] = useState<Categories>({ subjects: [], topics: [], tags: [] });
+  const [activeSubjectFilter, setActiveSubjectFilter] = useState<string | null>(null);
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [showNoteInfo, setShowNoteInfo] = useState(false);
+  const [editSubject, setEditSubject] = useState('');
+  const [editTopic, setEditTopic] = useState('');
+  const [editTags, setEditTags] = useState('');
 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -91,12 +98,32 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
       const data = await notesAPI.getAll();
       setNotes(data);
       setFilteredNotes(data);
+      // Load categories
+      try {
+        const cats = await notesAPI.getCategories();
+        setCategories(cats);
+      } catch { /* ignore */ }
     } catch (err) {
       console.error('Failed to load notes:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  // Apply subject/tag filters
+  useEffect(() => {
+    if (!activeSubjectFilter && !activeTagFilter) {
+      return; // search effect handles default filtering
+    }
+    let filtered = notes;
+    if (activeSubjectFilter) {
+      filtered = filtered.filter(n => n.subject === activeSubjectFilter);
+    }
+    if (activeTagFilter) {
+      filtered = filtered.filter(n => n.tags && n.tags.toLowerCase().includes(activeTagFilter.toLowerCase()));
+    }
+    setFilteredNotes(filtered);
+  }, [activeSubjectFilter, activeTagFilter, notes]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -137,6 +164,9 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
       setShowImage(false);
       setShowNotesPanel(false);
       setActiveMenu(null);
+      setEditSubject(fullNote.subject || '');
+      setEditTopic(fullNote.topic || '');
+      setEditTags(fullNote.tags || '');
     } catch (err) {
       setMessage('Error loading note: ' + (err instanceof Error ? err.message : 'Failed'));
     }
@@ -345,6 +375,29 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to explain'));
     } finally {
       setGeneratingExplanation(false);
+    }
+  };
+
+  const saveNoteMetadata = async () => {
+    if (!selectedNote) return;
+    try {
+      await notesAPI.update(selectedNote.id, {
+        subject: editSubject || undefined,
+        topic: editTopic || undefined,
+        tags: editTags || undefined,
+      });
+      // Update local state
+      setSelectedNote({ ...selectedNote, subject: editSubject, topic: editTopic, tags: editTags } as NoteWithImage);
+      setNotes(notes.map(n => n.id === selectedNote.id ? { ...n, subject: editSubject, topic: editTopic, tags: editTags } : n));
+      setMessage('Note info saved!');
+      setTimeout(() => setMessage(''), 2000);
+      // Refresh categories
+      try {
+        const cats = await notesAPI.getCategories();
+        setCategories(cats);
+      } catch { /* ignore */ }
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to save'));
     }
   };
 
@@ -570,6 +623,9 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
               </div>
               <div style={{...menuItemStyle}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { setShowNotesPanel(!showNotesPanel); setActiveMenu(null); }}>
                 <span>{showNotesPanel ? '✓ ' : ''}📁 Notes Panel</span>
+              </div>
+              <div style={{...menuItemStyle}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { setShowNoteInfo(!showNoteInfo); setActiveMenu(null); }}>
+                <span>{showNoteInfo ? '✓ ' : ''}🏷️ Note Info Panel</span>
               </div>
             </div>
           )}
@@ -923,6 +979,65 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
               </div>
               {isSearching && <div style={{ fontSize: '11px', color: '#888', marginTop: '4px', textAlign: 'center' }}>Searching...</div>}
             </div>
+
+            {/* Category Filters */}
+            {(categories.subjects.length > 0 || categories.tags.length > 0) && (
+              <div style={{ padding: '8px 10px', borderBottom: '1px solid #eee', maxHeight: '140px', overflowY: 'auto' }}>
+                {categories.subjects.length > 0 && (
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '4px' }}>Subjects</div>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => { setActiveSubjectFilter(null); setActiveTagFilter(null); }}
+                        style={{
+                          fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #ddd', cursor: 'pointer',
+                          background: !activeSubjectFilter ? '#FF9800' : 'white',
+                          color: !activeSubjectFilter ? 'white' : '#666',
+                        }}
+                      >
+                        All
+                      </button>
+                      {categories.subjects.map(sub => (
+                        <button
+                          key={sub}
+                          onClick={() => { setActiveSubjectFilter(activeSubjectFilter === sub ? null : sub); setSearchQuery(''); }}
+                          style={{
+                            fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #FFE082', cursor: 'pointer',
+                            background: activeSubjectFilter === sub ? '#FFC107' : '#FFF8E1',
+                            color: activeSubjectFilter === sub ? '#5D4037' : '#F57F17',
+                            fontWeight: activeSubjectFilter === sub ? 'bold' : 'normal',
+                          }}
+                        >
+                          {sub}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {categories.tags.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '4px' }}>Tags</div>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {categories.tags.map(tag => (
+                        <button
+                          key={tag}
+                          onClick={() => { setActiveTagFilter(activeTagFilter === tag ? null : tag); setSearchQuery(''); }}
+                          style={{
+                            fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9', cursor: 'pointer',
+                            background: activeTagFilter === tag ? '#1565C0' : '#E3F2FD',
+                            color: activeTagFilter === tag ? 'white' : '#1565C0',
+                            fontWeight: activeTagFilter === tag ? 'bold' : 'normal',
+                          }}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
               {loading ? (
                 <p style={{ color: '#888', fontSize: '13px', padding: '10px' }}>Loading...</p>
@@ -994,6 +1109,87 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
                 alt="Note"
                 style={{ maxWidth: '100%', borderRadius: '8px', border: '1px solid #ddd' }}
               />
+            )}
+          </div>
+        )}
+
+        {/* Note Info Panel */}
+        {showNoteInfo && selectedNote && (
+          <div style={{ width: '240px', background: 'white', borderRight: '1px solid #ddd', padding: '15px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h3 style={{ margin: 0, fontSize: '14px', color: '#5D4037' }}>🏷️ Note Info</h3>
+              <button onClick={() => setShowNoteInfo(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Subject</label>
+              <input
+                type="text"
+                value={editSubject}
+                onChange={(e) => setEditSubject(e.target.value)}
+                placeholder="e.g. Biology, Math..."
+                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Topic</label>
+              <input
+                type="text"
+                value={editTopic}
+                onChange={(e) => setEditTopic(e.target.value)}
+                placeholder="e.g. Cell Division..."
+                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Tags (comma-separated)</label>
+              <input
+                type="text"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+                placeholder="e.g. midterm, chapter3..."
+                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <button
+              onClick={saveNoteMetadata}
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                color: '#5D4037',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 'bold',
+              }}
+            >
+              Save Info
+            </button>
+
+            {/* Quick info display */}
+            <div style={{ marginTop: '20px', padding: '12px', background: '#f9f9f9', borderRadius: '8px', fontSize: '12px', color: '#666' }}>
+              <div style={{ marginBottom: '4px' }}><strong>Created:</strong> {new Date(selectedNote.created_at).toLocaleString()}</div>
+              <div style={{ marginBottom: '4px' }}><strong>Status:</strong> {selectedNote.status}</div>
+              {selectedNote.image_filename && <div><strong>File:</strong> {selectedNote.image_filename}</div>}
+            </div>
+
+            {/* Tag chips preview */}
+            {editTags && (
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '6px' }}>Tags Preview</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {editTags.split(',').map((tag, i) => (
+                    tag.trim() && <span key={i} style={{ fontSize: '11px', background: '#E3F2FD', color: '#1565C0', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9' }}>
+                      {tag.trim()}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
