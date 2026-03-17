@@ -23,6 +23,7 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
   const [noteType, setNoteType] = useState<'default' | 'lecture' | 'meeting'>('default');
+  const [zoom, setZoom] = useState(100);
   
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -663,6 +664,20 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
         <button style={toolbarBtnStyle} onClick={() => execCommand('undo')} title="Undo (Ctrl+Z)">↩</button>
         <button style={toolbarBtnStyle} onClick={() => execCommand('redo')} title="Redo (Ctrl+Y)">↪</button>
 
+        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
+
+        {/* Zoom Controls */}
+        <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ padding: '6px 8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', background: 'white', width: '65px' }} title="Zoom">
+          <option value={25}>25%</option>
+          <option value={50}>50%</option>
+          <option value={75}>75%</option>
+          <option value={100}>100%</option>
+          <option value={125}>125%</option>
+          <option value={150}>150%</option>
+        </select>
+        <button style={toolbarBtnStyle} onClick={() => setZoom(Math.min(150, zoom + 25))} title="Zoom In">+</button>
+        <button style={toolbarBtnStyle} onClick={() => setZoom(Math.max(25, zoom - 25))} title="Zoom Out">−</button>
+
         <div style={{ flex: 1 }} />
 
         {/* Save Button */}
@@ -776,6 +791,8 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
             background: 'white',
             boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
             minHeight: '1100px',
+            transform: `scale(${zoom / 100})`,
+            transformOrigin: 'top center',
           }}>
             {/* Paper - auto-expanding */}
             <div
@@ -811,7 +828,7 @@ export default function Dashboard({ userEmail, onLogout }: DashboardProps) {
         justifyContent: 'space-between'
       }}>
         <span>{selectedNote ? `Editing: ${selectedNote.title || 'Untitled'}` : 'No note selected - Use File → Upload New Note to get started'}</span>
-        <span>{charCount} characters • {wordCount} words | Gemini AI 🐵🍌</span>
+        <span>{charCount} characters • {wordCount} words • {zoom}% | Gemini AI 🐵🍌</span>
       </div>
     </div>
   );
