@@ -311,6 +311,42 @@ class NoteController:
         ).order_by(Note.created_at.desc()).offset(skip).limit(limit).all()
 
     @staticmethod
+    def search_notes(db: Session, user: User, query: str, subject: Optional[str] = None, topic: Optional[str] = None) -> List[Note]:
+        from sqlalchemy import or_
+        q = db.query(Note).filter(Note.owner_id == user.id)
+
+        if query:
+            search = f"%{query}%"
+            q = q.filter(or_(
+                Note.title.ilike(search),
+                Note.raw_text.ilike(search),
+                Note.subject.ilike(search),
+                Note.topic.ilike(search),
+                Note.tags.ilike(search),
+            ))
+
+        if subject:
+            q = q.filter(Note.subject == subject)
+        if topic:
+            q = q.filter(Note.topic == topic)
+
+        return q.order_by(Note.created_at.desc()).all()
+
+    @staticmethod
+    def get_subjects_and_topics(db: Session, user: User) -> dict:
+        notes = db.query(Note).filter(Note.owner_id == user.id).all()
+        subjects = sorted(set(n.subject for n in notes if n.subject))
+        topics = sorted(set(n.topic for n in notes if n.topic))
+        all_tags: set = set()
+        for n in notes:
+            if n.tags:
+                for tag in n.tags.split(','):
+                    tag = tag.strip()
+                    if tag:
+                        all_tags.add(tag)
+        return {"subjects": subjects, "topics": topics, "tags": sorted(all_tags)}
+
+    @staticmethod
     def get_note(db: Session, note_id: int, user: User) -> Note:
         note = db.query(Note).filter(
             Note.id == note_id,

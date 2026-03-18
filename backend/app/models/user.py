@@ -17,3 +17,6 @@ class User(Base):
     
     # Relationship to notes
     notes = relationship("Note", back_populates="owner")
+    
+    # Relationship to notebooks
+    notebooks = relationship("Notebook", back_populates="owner", cascade="all, delete-orphan")

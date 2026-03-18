@@ -1,1 +1,1 @@
-# NotePeel Backend
+# App package
