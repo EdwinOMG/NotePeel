@@ -47,10 +47,45 @@ def get_notes(
             "status": n.status.value if hasattr(n.status, 'value') else str(n.status),
             "created_at": n.created_at,
             "subject": n.subject,
-            "topic": n.topic
+            "topic": n.topic,
+            "tags": n.tags
         }
         for n in notes
     ]
+
+
+@router.get("/search")
+def search_notes(
+    q: str = Query(default="", description="Search query"),
+    subject: Optional[str] = Query(default=None),
+    topic: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Search notes by text, subject, topic, or tags."""
+    notes = note_controller.search_notes(db, current_user, q, subject, topic)
+    return [
+        {
+            "id": n.id,
+            "title": n.title,
+            "image_filename": n.image_filename,
+            "status": n.status.value if hasattr(n.status, 'value') else str(n.status),
+            "created_at": n.created_at,
+            "subject": n.subject,
+            "topic": n.topic,
+            "tags": n.tags
+        }
+        for n in notes
+    ]
+
+
+@router.get("/categories")
+def get_categories(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all subjects, topics, and tags for the current user."""
+    return note_controller.get_subjects_and_topics(db, current_user)
 
 
 @router.get("/{note_id}")
