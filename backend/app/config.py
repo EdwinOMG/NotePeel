@@ -5,6 +5,14 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
+
+    #cloudflare r2 settings
+    r2_endpoint: str
+    r2_access_key_id: str
+    r2_secret_access_key: str
+    r2_bucket_name: str
+
+
     # App settings
     app_name: str = "NotePeel"
     debug: bool = True

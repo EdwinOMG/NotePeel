@@ -1030,15 +1030,15 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         )}
 
         {/* Image Panel (toggleable) */}
-        {showImage && selectedNote && (
+         {showImage && selectedNote && (
           <div style={{ width: '350px', background: darkMode ? '#2d2d4a' : '#f5f5f5', borderRight: `1px solid ${theme.border}`, padding: '20px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h3 style={{ margin: 0, fontSize: '14px', color: theme.text }}>📷 Original Image</h3>
               <button onClick={() => setShowImage(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: theme.text }}>✕</button>
             </div>
-            {selectedNote.image_base64 && (
+            {selectedNote.image_url && (
               <img
-                src={`data:${selectedNote.image_mimetype};base64,${selectedNote.image_base64}`}
+                src={selectedNote.image_url}
                 alt="Note"
                 style={{ maxWidth: '100%', borderRadius: '8px', border: `1px solid ${theme.border}` }}
               />

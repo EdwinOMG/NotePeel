@@ -120,7 +120,6 @@ def extract_structured_text(image_bytes: bytes, note_type: str = "default") -> d
     raw = raw.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
-
     try:
         structured = json.loads(raw)
     except json.JSONDecodeError as e:
