@@ -1,47 +1,146 @@
 import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import NotebooksPage from './pages/NotebooksPage';
+import NotebookView from './pages/NotebookView';
 import Dashboard from './pages/Dashboard';
+import SettingsPage from './pages/SettingsPage';
 
-type Page = 'login' | 'register' | 'dashboard';
+type Page = 
+  | { type: 'login' }
+  | { type: 'register' }
+  | { type: 'notebooks' }
+  | { type: 'notebook'; notebookId: number }
+  | { type: 'editor'; noteId: number; notebookId?: number }
+  | { type: 'settings' };
 
 function App() {
-  const [page, setPage] = useState<Page>('login');
-  const [userEmail, setUserEmail] = useState<string>('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [currentPage, setCurrentPage] = useState<Page>({ type: 'login' });
+  const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
+    // Check for existing session
     const token = localStorage.getItem('token');
-    const savedEmail = localStorage.getItem('userEmail');
+    const email = localStorage.getItem('userEmail');
+    const savedDarkMode = localStorage.getItem('darkMode');
     
-    if (token && savedEmail) {
-      setUserEmail(savedEmail);
-      setPage('dashboard');
+    if (token && email) {
+      setIsAuthenticated(true);
+      setUserEmail(email);
+      setCurrentPage({ type: 'notebooks' });
+    }
+    
+    if (savedDarkMode === 'true') {
+      setDarkMode(true);
     }
   }, []);
 
   const handleLogin = (token: string, email: string) => {
     localStorage.setItem('token', token);
     localStorage.setItem('userEmail', email);
+    setIsAuthenticated(true);
     setUserEmail(email);
-    setPage('dashboard');
+    setCurrentPage({ type: 'notebooks' });
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userEmail');
+    setIsAuthenticated(false);
     setUserEmail('');
-    setPage('login');
+    setCurrentPage({ type: 'login' });
   };
 
-  if (page === 'login') {
-    return <Login onLogin={handleLogin} onSwitchToRegister={() => setPage('register')} />;
+  const toggleDarkMode = () => {
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+    localStorage.setItem('darkMode', String(newDarkMode));
+  };
+
+  // Not authenticated - show login/register
+  if (!isAuthenticated) {
+    if (currentPage.type === 'register') {
+      return (
+        <Register
+          onRegister={handleLogin}
+          onSwitchToLogin={() => setCurrentPage({ type: 'login' })}
+        />
+      );
+    }
+    return (
+      <Login
+        onLogin={handleLogin}
+        onSwitchToRegister={() => setCurrentPage({ type: 'register' })}
+      />
+    );
   }
 
-  if (page === 'register') {
-    return <Register onRegister={handleLogin} onSwitchToLogin={() => setPage('login')} />;
-  }
+  // Authenticated - show appropriate page
+  switch (currentPage.type) {
+    case 'notebooks':
+      return (
+        <NotebooksPage
+          userEmail={userEmail}
+          onLogout={handleLogout}
+          onOpenNotebook={(notebookId) => setCurrentPage({ type: 'notebook', notebookId })}
+          onOpenSettings={() => setCurrentPage({ type: 'settings' })}
+          darkMode={darkMode}
+        />
+      );
 
-  return <Dashboard userEmail={userEmail} onLogout={handleLogout} />;
+    case 'notebook':
+      return (
+        <NotebookView
+          notebookId={currentPage.notebookId}
+          onBack={() => setCurrentPage({ type: 'notebooks' })}
+          onOpenNote={(noteId, notebookId) => setCurrentPage({ type: 'editor', noteId, notebookId })}
+          onCreateNote={(notebookId) => setCurrentPage({ type: 'editor', noteId: 0, notebookId })}
+          darkMode={darkMode}
+        />
+      );
+
+    case 'editor':
+      return (
+        <Dashboard
+          userEmail={userEmail}
+          onLogout={handleLogout}
+          initialNoteId={currentPage.noteId > 0 ? currentPage.noteId : undefined}
+          notebookId={currentPage.notebookId}
+          onBack={() => {
+            if (currentPage.notebookId) {
+              setCurrentPage({ type: 'notebook', notebookId: currentPage.notebookId });
+            } else {
+              setCurrentPage({ type: 'notebooks' });
+            }
+          }}
+          darkMode={darkMode}
+        />
+      );
+
+    case 'settings':
+      return (
+        <SettingsPage
+          userEmail={userEmail}
+          onBack={() => setCurrentPage({ type: 'notebooks' })}
+          onLogout={handleLogout}
+          darkMode={darkMode}
+          onToggleDarkMode={toggleDarkMode}
+        />
+      );
+
+    default:
+      return (
+        <NotebooksPage
+          userEmail={userEmail}
+          onLogout={handleLogout}
+          onOpenNotebook={(notebookId) => setCurrentPage({ type: 'notebook', notebookId })}
+          onOpenSettings={() => setCurrentPage({ type: 'settings' })}
+          darkMode={darkMode}
+        />
+      );
+  }
 }
 
 export default App;

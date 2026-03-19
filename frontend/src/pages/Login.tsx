@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
 
 interface LoginProps {
@@ -11,6 +11,15 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Check for session expired message on mount
+  useEffect(() => {
+    const sessionExpired = sessionStorage.getItem('sessionExpired');
+    if (sessionExpired) {
+      setError('Your session has expired. Please log in again.');
+      sessionStorage.removeItem('sessionExpired');
+    }
+  }, []);
 
   const handleSubmit = async () => {
     if (!email || !password) {
@@ -54,7 +63,13 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
         </div>
         
         {error && (
-          <div style={{ background: '#ffebee', color: '#c62828', padding: '10px', borderRadius: '6px', marginBottom: '20px' }}>
+          <div style={{ 
+            background: error.includes('expired') ? '#FFF3E0' : '#ffebee', 
+            color: error.includes('expired') ? '#E65100' : '#c62828', 
+            padding: '10px', 
+            borderRadius: '6px', 
+            marginBottom: '20px' 
+          }}>
             {error}
           </div>
         )}
