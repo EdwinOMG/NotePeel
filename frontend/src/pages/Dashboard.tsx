@@ -114,6 +114,31 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     }
   };
 
+  // Search with debounce
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredNotes(notes);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await notesAPI.search(searchQuery);
+        setFilteredNotes(results);
+      } catch {
+        setFilteredNotes(notes.filter(n =>
+          (n.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (n.subject || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (n.tags || '').toLowerCase().includes(searchQuery.toLowerCase())
+        ));
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, notes]);
+
   const loadNotes = async () => {
     try {
       const data = await notesAPI.getAll();
@@ -195,6 +220,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setShowImage(false);
       setShowNotesPanel(false);
       setActiveMenu(null);
+      setEditSubject(fullNote.subject || '');
+      setEditTopic(fullNote.topic || '');
+      setEditTags(fullNote.tags || '');
     } catch (err) {
       setMessage('Error loading note: ' + (err instanceof Error ? err.message : 'Failed'));
     }
@@ -711,6 +739,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { setShowNotesPanel(!showNotesPanel); setActiveMenu(null); }}>
                 <span>{showNotesPanel ? '✓ ' : ''}📁 Notes Panel</span>
               </div>
+              <div style={{...menuItemStyle}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { setShowNoteInfo(!showNoteInfo); setActiveMenu(null); }}>
+                <span>{showNoteInfo ? '✓ ' : ''}🏷️ Note Info Panel</span>
+              </div>
             </div>
           )}
         </div>
@@ -791,6 +822,33 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               </div>
               <div style={{...menuItemStyle, color: theme.text, fontWeight: lineSpacing === '2' ? 'bold' : 'normal'}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { setLineSpacing('2'); setActiveMenu(null); }}>
                 <span>{lineSpacing === '2' ? '✓ ' : ''}Double Spacing</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* AI Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
+            style={{ padding: '6px 12px', background: activeMenu === 'ai' ? '#e0e0e0' : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#E65100' }}
+          >
+            AI Tools
+          </button>
+          {activeMenu === 'ai' && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '240px', zIndex: 1000 }}>
+              <div style={{...menuItemStyle, color: selectedNote ? '#333' : '#ccc'}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
+                <span>🃏 Generate Flashcards</span>
+                {generatingFlashcards && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
+              </div>
+              <div style={{...menuItemStyle, color: selectedNote ? '#333' : '#ccc'}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
+                <span>📋 Summarize Note</span>
+                {generatingSummary && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
+              </div>
+              <div style={{ borderTop: '1px solid #eee', margin: '4px 0' }} />
+              <div style={{...menuItemStyle}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
+                <span>💡 Explain Selection</span>
+                {generatingExplanation && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
               </div>
             </div>
           )}
@@ -941,7 +999,76 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => setZoom(Math.max(50, zoom - 25))} title="Zoom Out">−</button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => setZoom(Math.min(150, zoom + 25))} title="Zoom In">+</button>
 
+        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
+
+        {/* Zoom Controls */}
+        <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ padding: '6px 8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', background: 'white', width: '65px' }} title="Zoom">
+          <option value={25}>25%</option>
+          <option value={50}>50%</option>
+          <option value={75}>75%</option>
+          <option value={100}>100%</option>
+          <option value={125}>125%</option>
+          <option value={150}>150%</option>
+        </select>
+        <button style={toolbarBtnStyle} onClick={() => setZoom(Math.min(150, zoom + 25))} title="Zoom In">+</button>
+        <button style={toolbarBtnStyle} onClick={() => setZoom(Math.max(25, zoom - 25))} title="Zoom Out">−</button>
+
         <div style={{ flex: 1 }} />
+
+        {/* AI Quick Buttons */}
+        <button
+          onClick={handleGenerateFlashcards}
+          disabled={!selectedNote || generatingFlashcards}
+          style={{
+            padding: '6px 12px',
+            background: selectedNote ? '#E3F2FD' : '#f0f0f0',
+            color: selectedNote ? '#1565C0' : '#aaa',
+            border: '1px solid ' + (selectedNote ? '#90CAF9' : '#ddd'),
+            borderRadius: '4px',
+            cursor: selectedNote ? 'pointer' : 'not-allowed',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}
+          title="Generate Flashcards"
+        >
+          {generatingFlashcards ? '...' : '🃏 Flashcards'}
+        </button>
+        <button
+          onClick={handleSummarize}
+          disabled={!selectedNote || generatingSummary}
+          style={{
+            padding: '6px 12px',
+            background: selectedNote ? '#E8F5E9' : '#f0f0f0',
+            color: selectedNote ? '#2E7D32' : '#aaa',
+            border: '1px solid ' + (selectedNote ? '#A5D6A7' : '#ddd'),
+            borderRadius: '4px',
+            cursor: selectedNote ? 'pointer' : 'not-allowed',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}
+          title="Summarize Note"
+        >
+          {generatingSummary ? '...' : '📋 Summary'}
+        </button>
+        <button
+          onClick={handleExplain}
+          disabled={generatingExplanation}
+          style={{
+            padding: '6px 12px',
+            background: '#FFF3E0',
+            color: '#E65100',
+            border: '1px solid #FFCC80',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}
+          title="Explain selected text"
+        >
+          {generatingExplanation ? '...' : '💡 Explain'}
+        </button>
+
+        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
 
         {/* Save Button */}
         <button
@@ -987,13 +1114,106 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <span>📁 Your Notes ({notes.length})</span>
               <button onClick={() => setShowNotesPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: theme.text }}>✕</button>
             </div>
+            {/* Search Bar */}
+            <div style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="Search notes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 32px 8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    background: '#f9f9f9',
+                  }}
+                />
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#888' }}
+                  >
+                    ✕
+                  </button>
+                ) : (
+                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#aaa', pointerEvents: 'none' }}>
+                    🔍
+                  </span>
+                )}
+              </div>
+              {isSearching && <div style={{ fontSize: '11px', color: '#888', marginTop: '4px', textAlign: 'center' }}>Searching...</div>}
+            </div>
+
+            {/* Category Filters */}
+            {(categories.subjects.length > 0 || categories.tags.length > 0) && (
+              <div style={{ padding: '8px 10px', borderBottom: '1px solid #eee', maxHeight: '140px', overflowY: 'auto' }}>
+                {categories.subjects.length > 0 && (
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '4px' }}>📁 Folders</div>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => { setActiveSubjectFilter(null); setActiveTagFilter(null); }}
+                        style={{
+                          fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #ddd', cursor: 'pointer',
+                          background: !activeSubjectFilter ? '#FF9800' : 'white',
+                          color: !activeSubjectFilter ? 'white' : '#666',
+                        }}
+                      >
+                        All
+                      </button>
+                      {categories.subjects.map(sub => (
+                        <button
+                          key={sub}
+                          onClick={() => { setActiveSubjectFilter(activeSubjectFilter === sub ? null : sub); setSearchQuery(''); }}
+                          style={{
+                            fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #FFE082', cursor: 'pointer',
+                            background: activeSubjectFilter === sub ? '#FFC107' : '#FFF8E1',
+                            color: activeSubjectFilter === sub ? '#5D4037' : '#F57F17',
+                            fontWeight: activeSubjectFilter === sub ? 'bold' : 'normal',
+                          }}
+                        >
+                          📁 {sub}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {categories.tags.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '4px' }}>Tags</div>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {categories.tags.map(tag => (
+                        <button
+                          key={tag}
+                          onClick={() => { setActiveTagFilter(activeTagFilter === tag ? null : tag); setSearchQuery(''); }}
+                          style={{
+                            fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9', cursor: 'pointer',
+                            background: activeTagFilter === tag ? '#1565C0' : '#E3F2FD',
+                            color: activeTagFilter === tag ? 'white' : '#1565C0',
+                            fontWeight: activeTagFilter === tag ? 'bold' : 'normal',
+                          }}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
               {loading ? (
                 <p style={{ color: theme.textSecondary, fontSize: '13px', padding: '10px' }}>Loading...</p>
               ) : notes.length === 0 ? (
                 <p style={{ color: theme.textSecondary, fontSize: '13px', padding: '10px' }}>No notes yet. Upload one!</p>
               ) : (
-                notes.map(note => (
+                filteredNotes.map(note => (
                   <div
                     key={note.id}
                     onClick={() => viewNote(note)}
@@ -1014,10 +1234,66 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                         <div style={{ fontSize: '11px', color: theme.textSecondary, marginTop: '2px' }}>
                           {new Date(note.created_at).toLocaleDateString()}
                         </div>
+                        {(note.subject || note.tags) && (
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                            {note.subject && (
+                              <span style={{ fontSize: '10px', background: '#FFF8E1', color: '#F57F17', padding: '1px 6px', borderRadius: '10px', border: '1px solid #FFE082' }}>
+                                📁 {note.subject}
+                              </span>
+                            )}
+                            {note.tags && note.tags.split(',').slice(0, 2).map((tag, i) => (
+                              <span key={i} style={{ fontSize: '10px', background: '#E3F2FD', color: '#1565C0', padding: '1px 6px', borderRadius: '10px', border: '1px solid #90CAF9' }}>
+                                {tag.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ position: 'relative', marginLeft: '4px' }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setFolderMenuNote(folderMenuNote === note.id ? null : note.id); }}
+                          title="Move to folder"
+                          style={{ background: '#FFF8E1', color: '#F57F17', border: '1px solid #FFE082', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px' }}
+                        >
+                          📁
+                        </button>
+                        {folderMenuNote === note.id && (
+                          <div style={{ position: 'absolute', right: 0, top: '100%', background: 'white', border: '1px solid #ddd', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 100, minWidth: '140px', padding: '4px 0' }}>
+                            <div style={{ fontSize: '10px', color: '#888', padding: '4px 10px', borderBottom: '1px solid #eee' }}>Move to folder</div>
+                            <div
+                              onClick={() => assignFolder(note.id, '')}
+                              style={{ padding: '6px 10px', fontSize: '12px', cursor: 'pointer', color: '#666' }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
+                            >
+                              — None
+                            </div>
+                            {categories.subjects.map(sub => (
+                              <div
+                                key={sub}
+                                onClick={() => assignFolder(note.id, sub)}
+                                style={{ padding: '6px 10px', fontSize: '12px', cursor: 'pointer', fontWeight: note.subject === sub ? 'bold' : 'normal', color: '#333' }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = '#FFF8E1')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
+                              >
+                                📁 {sub}
+                              </div>
+                            ))}
+                            <div style={{ borderTop: '1px solid #eee', padding: '4px 10px' }}>
+                              <input
+                                type="text"
+                                placeholder="New folder..."
+                                style={{ width: '100%', fontSize: '11px', padding: '3px 6px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && e.currentTarget.value.trim()) assignFolder(note.id, e.currentTarget.value.trim()); }}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }}
-                        style={{ background: '#ff5252', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', marginLeft: '8px' }}
+                        style={{ background: '#ff5252', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', marginLeft: '4px' }}
                       >
                         ✕
                       </button>
@@ -1042,6 +1318,87 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                 alt="Note"
                 style={{ maxWidth: '100%', borderRadius: '8px', border: `1px solid ${theme.border}` }}
               />
+            )}
+          </div>
+        )}
+
+        {/* Note Info Panel */}
+        {showNoteInfo && selectedNote && (
+          <div style={{ width: '240px', background: 'white', borderRight: '1px solid #ddd', padding: '15px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h3 style={{ margin: 0, fontSize: '14px', color: '#5D4037' }}>🏷️ Note Info</h3>
+              <button onClick={() => setShowNoteInfo(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>📁 Folder</label>
+              <input
+                type="text"
+                value={editSubject}
+                onChange={(e) => setEditSubject(e.target.value)}
+                placeholder="e.g. Biology, Math..."
+                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Topic</label>
+              <input
+                type="text"
+                value={editTopic}
+                onChange={(e) => setEditTopic(e.target.value)}
+                placeholder="e.g. Cell Division..."
+                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Tags (comma-separated)</label>
+              <input
+                type="text"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+                placeholder="e.g. midterm, chapter3..."
+                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <button
+              onClick={saveNoteMetadata}
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                color: '#5D4037',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 'bold',
+              }}
+            >
+              Save Info
+            </button>
+
+            {/* Quick info display */}
+            <div style={{ marginTop: '20px', padding: '12px', background: '#f9f9f9', borderRadius: '8px', fontSize: '12px', color: '#666' }}>
+              <div style={{ marginBottom: '4px' }}><strong>Created:</strong> {new Date(selectedNote.created_at).toLocaleString()}</div>
+              <div style={{ marginBottom: '4px' }}><strong>Status:</strong> {selectedNote.status}</div>
+              {selectedNote.image_filename && <div><strong>File:</strong> {selectedNote.image_filename}</div>}
+            </div>
+
+            {/* Tag chips preview */}
+            {editTags && (
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '6px' }}>Tags Preview</div>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {editTags.split(',').map((tag, i) => (
+                    tag.trim() && <span key={i} style={{ fontSize: '11px', background: '#E3F2FD', color: '#1565C0', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9' }}>
+                      {tag.trim()}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
