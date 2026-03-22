@@ -80,6 +80,9 @@ export const authAPI = {
     fetchWithAuth('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
     
   getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
+
+  googleLogin: (credential: string): Promise<AuthToken> =>
+    fetchWithAuth('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
 };
 
 export const notesAPI = {
