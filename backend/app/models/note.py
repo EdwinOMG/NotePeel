@@ -30,10 +30,10 @@ class Note(Base):
     # Extracted text
     raw_text = Column(Text, nullable=True)
     structured_text = Column(Text, nullable=True)
-
+    
     # AI-generated content (cached)
     ai_summary = Column(Text, nullable=True)
-
+    
     # Organization
     subject = Column(String(100), nullable=True)
     topic = Column(String(100), nullable=True)
@@ -52,4 +52,6 @@ class Note(Base):
 
     # Relationships
     owner = relationship("User", back_populates="notes")
+    
+    # Relationship to notebooks (many-to-many)
     notebooks = relationship("Notebook", secondary="note_notebooks", back_populates="notes")

@@ -331,6 +331,7 @@ class NoteController:
     def search_notes(db: Session, user: User, query: str, subject: Optional[str] = None, topic: Optional[str] = None) -> List[Note]:
         from sqlalchemy import or_
         q = db.query(Note).filter(Note.owner_id == user.id)
+
         if query:
             search = f"%{query}%"
             q = q.filter(or_(
@@ -340,10 +341,12 @@ class NoteController:
                 Note.topic.ilike(search),
                 Note.tags.ilike(search),
             ))
+
         if subject:
             q = q.filter(Note.subject == subject)
         if topic:
             q = q.filter(Note.topic == topic)
+
         return q.order_by(Note.created_at.desc()).all()
 
     @staticmethod

@@ -129,7 +129,7 @@ export const notesAPI = {
     
   update: (id: number, data: { structured_text?: string; title?: string; subject?: string; topic?: string; tags?: string }): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    
+
   delete: (id: number): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'DELETE' }),
 
