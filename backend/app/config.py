@@ -13,9 +13,7 @@ class Settings(BaseSettings):
     r2_bucket_name: str
     r2_account_id: str
 
-    #workers ai from cloudflare
-    cf_account_id: str
-    cf_api_token: str
+
 
     # App settings
     app_name: str = "NotePeel"
@@ -37,6 +35,9 @@ class Settings(BaseSettings):
     google_cloud_api_key: str = ""
     google_application_credentials: str = ""
     
+    # Google OAuth
+    google_client_id: str = ""
+
     # Gemini AI
     gemini_api_key: str = ""
 

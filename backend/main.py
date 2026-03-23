@@ -40,7 +40,7 @@ app.include_router(auth_router)
 app.include_router(note_router)
 app.include_router(notebook_router)
 app.include_router(ai_router)
-app.include_router(ai_router)
+
 
 @app.on_event("startup")
 def startup_event():

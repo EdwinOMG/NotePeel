@@ -1,5 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { authAPI } from '../services/api';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+          renderButton: (element: HTMLElement, config: { theme?: string; size?: string; width?: number; text?: string }) => void;
+        };
+      };
+    };
+  }
+}
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 interface RegisterProps {
   onRegister: (token: string, email: string) => void;
@@ -12,6 +27,52 @@ export default function Register({ onRegister, onSwitchToLogin }: RegisterProps)
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+
+  const handleGoogleResponse = useCallback(async (response: { credential: string }) => {
+    setError('');
+    setLoading(true);
+    try {
+      const result = await authAPI.googleLogin(response.credential);
+      localStorage.setItem('token', result.access_token);
+      const me = await authAPI.getMe();
+      onRegister(result.access_token, me.email);
+    } catch (err) {
+      localStorage.removeItem('token');
+      setError(err instanceof Error ? err.message : 'Google sign-up failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [onRegister]);
+
+  const initGoogleSignIn = useCallback(() => {
+    if (GOOGLE_CLIENT_ID && window.google && googleButtonRef.current) {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 320,
+        text: 'signup_with',
+      });
+    }
+  }, [handleGoogleResponse]);
+
+  useEffect(() => {
+    if (window.google) {
+      initGoogleSignIn();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) {
+          initGoogleSignIn();
+          clearInterval(interval);
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [initGoogleSignIn]);
 
   const handleSubmit = async () => {
     if (!email || !username || !password) {
@@ -103,6 +164,17 @@ export default function Register({ onRegister, onSwitchToLogin }: RegisterProps)
           {loading ? 'Creating account...' : '🐵 Create Account'}
         </button>
         
+        {GOOGLE_CLIENT_ID && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', margin: '15px 0', gap: '10px' }}>
+              <div style={{ flex: 1, height: '1px', background: '#FFE082' }} />
+              <span style={{ color: '#8D6E63', fontSize: '13px' }}>or</span>
+              <div style={{ flex: 1, height: '1px', background: '#FFE082' }} />
+            </div>
+            <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center', marginBottom: '15px' }} />
+          </>
+        )}
+
         <p style={{ textAlign: 'center', margin: 0, color: '#8D6E63' }}>
           Already have an account?{' '}
           <span onClick={onSwitchToLogin} style={{ color: '#FF9800', cursor: 'pointer', fontWeight: 'bold' }}>

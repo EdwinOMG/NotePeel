@@ -80,6 +80,9 @@ export const authAPI = {
     fetchWithAuth('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
     
   getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
+
+  googleLogin: (credential: string): Promise<AuthToken> =>
+    fetchWithAuth('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
 };
 
 export const notesAPI = {
@@ -129,7 +132,7 @@ export const notesAPI = {
     
   update: (id: number, data: { structured_text?: string; title?: string; subject?: string; topic?: string; tags?: string }): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    
+
   delete: (id: number): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'DELETE' }),
 
