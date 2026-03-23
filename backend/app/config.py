@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # Gemini AI
     gemini_api_key: str = ""
 
+    # Cloudflare Workers AI
+    cf_account_id: str = ""
+    cf_api_token: str = ""
+
     class Config:
         env_file = ".env"
 
