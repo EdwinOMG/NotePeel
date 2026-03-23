@@ -1,31 +1,21 @@
 import json
 import re
-import os
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from google import genai
 
 from app.database import get_db
 from app.models.user import User
 from app.models.note import Note
 from app.models.flashcard import FlashcardSet, Flashcard, AISummary, AIExplanation
 from app.controllers.auth_controller import get_current_user
+from app.services.workers_ai import (
+    summarize_note as workers_summarize,
+    explain_highlight as workers_explain,
+    generate_flashcards as workers_flashcards,
+)
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
-
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
-
-
-def _call_gemini(prompt: str) -> str:
-    response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=[prompt]
-    )
-    raw = (response.text or "").strip()
-    raw = re.sub(r"^```json\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
-    return raw
 
 
 def _get_user_note(db: Session, note_id: int, user: User) -> Note:
@@ -37,10 +27,10 @@ def _get_user_note(db: Session, note_id: int, user: User) -> Note:
     return note
 
 
-# ── Flashcard Generation ──
+# ── Flashcard Generation ───────────────────────────────────────────────────────
 
 @router.post("/flashcards/{note_id}")
-def generate_flashcards(
+async def generate_flashcards(
     note_id: int,
     regenerate: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -48,13 +38,13 @@ def generate_flashcards(
 ):
     note = _get_user_note(db, note_id, current_user)
 
-    # Check if flashcards already exist (unless regenerate=True)
+    # Return cached set if exists and not regenerating
     if not regenerate:
         existing = db.query(FlashcardSet).filter(
             FlashcardSet.note_id == note_id,
             FlashcardSet.owner_id == current_user.id
         ).order_by(FlashcardSet.created_at.desc()).first()
-        
+
         if existing:
             return {
                 "id": existing.id,
@@ -65,52 +55,34 @@ def generate_flashcards(
                 "cached": True
             }
 
-    prompt = f"""Based on the following study notes, generate flashcards for studying.
-Create 8-12 flashcards that cover the key concepts, definitions, and facts.
-
-Return ONLY a valid JSON object with this structure:
-{{
-  "title": "Flashcards: <brief topic>",
-  "cards": [
-    {{"question": "...", "answer": "..."}},
-    ...
-  ]
-}}
-
-Notes content:
-{note.raw_text[:4000]}
-"""
-
+    # Generate via Workers AI (Llama)
     try:
-        raw = _call_gemini(prompt)
-        data = json.loads(raw)
-    except (json.JSONDecodeError, Exception) as e:
+        cards_data = await workers_flashcards(note.raw_text[:4000])
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
 
-    # Delete old flashcards for this note if regenerating
+    # Delete old set if regenerating
     if regenerate:
         db.query(FlashcardSet).filter(
             FlashcardSet.note_id == note_id,
             FlashcardSet.owner_id == current_user.id
         ).delete()
 
-    # Save to database
+    # Save new set to DB
     fc_set = FlashcardSet(
         note_id=note_id,
-        title=data.get("title", f"Flashcards for {note.title}"),
+        title=f"Flashcards: {note.title or 'Untitled'}",
         owner_id=current_user.id,
     )
     db.add(fc_set)
     db.flush()
 
-    cards_data = data.get("cards", [])
     for card in cards_data:
-        fc = Flashcard(
+        db.add(Flashcard(
             set_id=fc_set.id,
             question=card.get("question", ""),
             answer=card.get("answer", ""),
-        )
-        db.add(fc)
+        ))
 
     db.commit()
     db.refresh(fc_set)
@@ -148,10 +120,10 @@ def get_flashcards(
     ]
 
 
-# ── Summarize ──
+# ── Summarize ──────────────────────────────────────────────────────────────────
 
 @router.post("/summarize/{note_id}")
-def summarize_note(
+async def summarize_note(
     note_id: int,
     regenerate: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -159,30 +131,24 @@ def summarize_note(
 ):
     note = _get_user_note(db, note_id, current_user)
 
-    # Return cached summary if exists (unless regenerate=True)
+    # Return cached summary if exists and not regenerating
     if not regenerate and note.ai_summary:
         return {"summary": note.ai_summary, "cached": True}
 
-    prompt = f"""Summarize the following study notes into a concise, well-structured summary.
-Use bullet points for key ideas. Keep it under 200 words.
-
-Notes content:
-{note.raw_text[:4000]}
-"""
-
+    # Generate via Workers AI (Llama)
     try:
-        summary = _call_gemini(prompt)
+        summary = await workers_summarize(note.raw_text[:4000])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI summarization failed: {str(e)}")
 
-    # Cache the summary on the note
+    # Cache on the note
     note.ai_summary = summary
     db.commit()
 
     return {"summary": summary, "cached": False}
 
 
-# ── Explain ──
+# ── Explain ────────────────────────────────────────────────────────────────────
 
 class ExplainRequest(BaseModel):
     text: str
@@ -190,7 +156,7 @@ class ExplainRequest(BaseModel):
 
 
 @router.post("/explain")
-def explain_text(
+async def explain_text(
     request: ExplainRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -199,15 +165,15 @@ def explain_text(
         raise HTTPException(status_code=400, detail="No text provided")
 
     text_to_explain = request.text.strip()
-    
-    # Check cache if note_id provided - look for exact or similar match
+
+    # Check cache first
     if request.note_id:
         existing = db.query(AIExplanation).filter(
             AIExplanation.note_id == request.note_id,
             AIExplanation.owner_id == current_user.id,
             AIExplanation.highlighted_text == text_to_explain
         ).first()
-        
+
         if existing:
             return {
                 "explanation": existing.explanation,
@@ -215,30 +181,44 @@ def explain_text(
                 "cached": True
             }
 
-    prompt = f"""Explain the following concept or text in a clear, educational way.
-Assume the reader is a student. Keep the explanation concise but thorough (under 150 words).
+    # Get surrounding context from note if available
+    context = ""
+    if request.note_id:
+        note = db.query(Note).filter(
+            Note.id == request.note_id,
+            Note.owner_id == current_user.id
+        ).first()
+        if note and note.raw_text:
+            raw = note.raw_text
+            idx = raw.lower().find(text_to_explain.lower())
+            if idx != -1:
+                start = max(0, idx - 300)
+                end = min(len(raw), idx + len(text_to_explain) + 300)
+                context = raw[start:end]
+            else:
+                context = raw[:600]
 
-Text to explain:
-{text_to_explain[:2000]}
-"""
-
+    # Generate via Workers AI (Llama)
     try:
-        explanation = _call_gemini(prompt)
+        explanation = await workers_explain(text_to_explain, context)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI explanation failed: {str(e)}")
 
-    # Save to cache if note_id provided
+    # Cache it if note_id was provided
     if request.note_id:
-        ai_exp = AIExplanation(
+        db.add(AIExplanation(
             note_id=request.note_id,
             owner_id=current_user.id,
             highlighted_text=text_to_explain,
             explanation=explanation
-        )
-        db.add(ai_exp)
+        ))
         db.commit()
 
-    return {"explanation": explanation, "highlighted_text": text_to_explain, "cached": False}
+    return {
+        "explanation": explanation,
+        "highlighted_text": text_to_explain,
+        "cached": False
+    }
 
 
 @router.get("/explanations/{note_id}")
