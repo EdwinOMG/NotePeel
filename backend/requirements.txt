@@ -21,3 +21,6 @@ email-validator>=2.0.0
 
 # Gemini AI
 google-genai
+ 
+# cloudflare r2 is s3 compatible so boto3
+boto3>=1.28.0

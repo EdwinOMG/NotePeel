@@ -37,7 +37,7 @@ export interface Note {
 }
 
 export interface NoteWithImage extends Note {
-  image_base64: string;
+  image_url: string;
   image_mimetype: string;
   raw_text: string;
   structured_text: string;

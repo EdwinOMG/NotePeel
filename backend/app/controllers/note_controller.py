@@ -2,11 +2,11 @@ from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status, UploadFile
-import base64
 
 from app.models.note import Note, ProcessingStatus
 from app.models.user import User
 from app.schemas.note_schema import NoteUpdate
+from app.services.storage import upload_image, delete_image, get_fresh_url
 
 import sys
 sys.path.insert(0, '..')
@@ -14,7 +14,6 @@ from ocr_service import extract_structured_text
 
 
 def clean(text: str) -> str:
-    """Strip physical line breaks so text reflows naturally in HTML."""
     return ' '.join(text.split())
 
 
@@ -30,9 +29,17 @@ class NoteController:
     ) -> Note:
         file_content = await file.read()
 
+        # Upload image to R2 first
+        storage_result = upload_image(
+            file_bytes=file_content,
+            filename=file.filename or "upload.jpg",
+            mimetype=file.content_type or "image/jpeg"
+        )
+
         note = Note(
             title=title or file.filename,
-            original_image=file_content,
+            image_key=storage_result["key"],
+            image_url=storage_result["url"],
             image_filename=file.filename or "uploaded_image",
             image_mimetype=file.content_type or "image/png",
             status=ProcessingStatus.PROCESSING,
@@ -82,14 +89,44 @@ class NoteController:
         return note
 
     @staticmethod
-    def _clean_elements(elements: list) -> list:
-        """
-        Post-process OCR elements to fix common Gemini misclassifications.
+    def get_note_with_image(db: Session, note_id: int, user: User) -> dict:
+        note = NoteController.get_note(db, note_id, user)
 
-        1. Drop triangle/arrow diagram elements that sit near a box-container
-           text element — they are decorative connectors, not real diagrams.
-        2. Drop diagram elements whose region already has a real text element.
-        """
+        # Generate a fresh presigned URL from the stored key
+        fresh_url = get_fresh_url(note.image_key) if note.image_key else None
+
+        return {
+            "id": note.id,
+            "title": note.title,
+            "image_filename": note.image_filename,
+            "image_mimetype": note.image_mimetype,
+            "image_url": fresh_url,          # URL instead of base64
+            "raw_text": note.raw_text,
+            "structured_text": note.structured_text,
+            "subject": note.subject,
+            "topic": note.topic,
+            "tags": note.tags,
+            "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
+            "error_message": note.error_message,
+            "created_at": note.created_at,
+            "processed_at": note.processed_at,
+        }
+
+    @staticmethod
+    def delete_note(db: Session, note_id: int, user: User) -> None:
+        note = NoteController.get_note(db, note_id, user)
+
+        # Delete from R2 before removing DB record
+        if note.image_key:
+            delete_image(note.image_key)
+
+        db.delete(note)
+        db.commit()
+
+    # ── Everything below is unchanged ─────────────────────────────────────────
+
+    @staticmethod
+    def _clean_elements(elements: list) -> list:
         box_elements = [
             e for e in elements
             if e.get('container') == 'box' and e.get('type') != 'diagram'
@@ -128,7 +165,6 @@ class NoteController:
 
     @staticmethod
     def _element_to_html(element: dict) -> str:
-        """Convert a single OCR element to an HTML string."""
         el_type = element.get('type', '')
         content = clean(element.get('content', ''))
         container = element.get('container', 'none')
@@ -203,7 +239,6 @@ class NoteController:
         else:
             weight = 'bold' if style.get('is_bold') else 'normal'
             base_p = f'margin:10px 0;line-height:1.75;font-weight:{weight};'
-
             if container == 'box':
                 return (
                     f'<div style="{box_css} font-weight:{weight};line-height:1.75;">'
@@ -220,19 +255,9 @@ class NoteController:
 
     @staticmethod
     def _build_html(sorted_elements: list) -> str:
-        """
-        Reconstruct the note layout in exact reading order.
-
-        - Groups elements into horizontal bands by overlapping y positions
-        - Single-element bands render full width
-        - Multi-element bands with left+right elements render as CSS grid
-          using the actual x_percent positions for proportional column widths
-        - Multi-element bands all in same column render in x order
-        """
         if not sorted_elements:
             return ''
 
-        # Group into horizontal bands
         bands: list = []
         current_band: list = []
 
@@ -259,7 +284,6 @@ class NoteController:
         if current_band:
             bands.append(current_band)
 
-        # Render each band
         html_parts = []
 
         for band in bands:
@@ -271,17 +295,11 @@ class NoteController:
             right_els = [e for e in band if 'right' in e.get('position', {}).get('region', '')]
 
             if left_els and right_els:
-                # Use actual x positions for proportional column widths
-                # The right column's x_percent tells us where it starts on the page
                 right_x = min(e.get('position', {}).get('x_percent', 50) for e in right_els)
                 left_x = min(e.get('position', {}).get('x_percent', 0) for e in left_els)
-
-                # Clamp to reasonable range so columns never collapse
                 right_x = max(20, min(80, right_x))
                 left_fr = round(right_x - left_x)
                 right_fr = round(100 - right_x)
-
-                # Ensure neither column is zero
                 if left_fr <= 0:
                     left_fr = 50
                 if right_fr <= 0:
@@ -298,7 +316,6 @@ class NoteController:
                     f'</div>'
                 )
             else:
-                # All in same column — render left to right
                 for el in sorted(band, key=lambda e: e.get('position', {}).get('x_percent', 0)):
                     html_parts.append(NoteController._element_to_html(el))
 
@@ -360,26 +377,6 @@ class NoteController:
         return note
 
     @staticmethod
-    def get_note_with_image(db: Session, note_id: int, user: User) -> dict:
-        note = NoteController.get_note(db, note_id, user)
-        return {
-            "id": note.id,
-            "title": note.title,
-            "image_filename": note.image_filename,
-            "image_mimetype": note.image_mimetype,
-            "image_base64": base64.b64encode(note.original_image).decode('utf-8'),
-            "raw_text": note.raw_text,
-            "structured_text": note.structured_text,
-            "subject": note.subject,
-            "topic": note.topic,
-            "tags": note.tags,
-            "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
-            "error_message": note.error_message,
-            "created_at": note.created_at,
-            "processed_at": note.processed_at,
-        }
-
-    @staticmethod
     def update_note(db: Session, note_id: int, update_data: NoteUpdate, user: User) -> Note:
         note = NoteController.get_note(db, note_id, user)
         update_dict = update_data.model_dump(exclude_unset=True)
@@ -388,12 +385,6 @@ class NoteController:
         db.commit()
         db.refresh(note)
         return note
-
-    @staticmethod
-    def delete_note(db: Session, note_id: int, user: User) -> None:
-        note = NoteController.get_note(db, note_id, user)
-        db.delete(note)
-        db.commit()
 
 
 note_controller = NoteController()
