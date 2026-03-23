@@ -42,4 +42,3 @@ frontend/dist/
 frontend/build/
 
 # Google credentials (in case someone accidentally puts it in backend/)
-*.json
