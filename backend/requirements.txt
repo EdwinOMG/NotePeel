@@ -13,6 +13,7 @@ psycopg2-binary>=2.9.9
 # Authentication
 pyjwt[crypto]>=2.8.0
 bcrypt>=4.1.0
+google-auth>=2.0.0
 
 # Validation
 pydantic>=2.0.0

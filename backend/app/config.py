@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     google_cloud_api_key: str = ""
     google_application_credentials: str = ""
     
+    # Google OAuth
+    google_client_id: str = ""
+
     # Gemini AI
     gemini_api_key: str = ""
 

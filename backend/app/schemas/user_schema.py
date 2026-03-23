@@ -38,3 +38,8 @@ class TokenData(BaseModel):
     """Schema for token data."""
     user_id: Optional[int] = None
     email: Optional[str] = None
+
+
+class GoogleAuthRequest(BaseModel):
+    """Schema for Google OAuth login."""
+    credential: str
