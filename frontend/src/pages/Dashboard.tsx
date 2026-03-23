@@ -54,6 +54,11 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [editSubject, setEditSubject] = useState('');
   const [editTopic, setEditTopic] = useState('');
   const [editTags, setEditTags] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [folderMenuNote, setFolderMenuNote] = useState<number | null>(null);
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showPeelingModal, setShowPeelingModal] = useState(false);
   
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +76,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     menuHover: darkMode ? '#3f3f5a' : '#f5f5f5',
     toolbarBg: darkMode ? '#2d2d4a' : '#f8f8f8',
     statusBar: darkMode ? '#252542' : '#f0f0f0',
+    inputBg: darkMode ? '#1a1a2e' : '#ffffff',
   };
 
   useEffect(() => {
@@ -190,7 +196,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     if (!file) return;
 
     setUploading(true);
-    setMessage('🍌 Peeling your notes with Gemini AI...');
+    setShowPeelingModal(true);
     setActiveMenu(null);
 
     try {
@@ -203,6 +209,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Upload failed'));
     } finally {
       setUploading(false);
+      setShowPeelingModal(false);
       e.target.value = '';
     }
   };
@@ -227,6 +234,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setEditSubject(fullNote.subject || '');
       setEditTopic(fullNote.topic || '');
       setEditTags(fullNote.tags || '');
+      setEditTitle(fullNote.title || '');
     } catch (err) {
       setMessage('Error loading note: ' + (err instanceof Error ? err.message : 'Failed'));
     }
@@ -378,6 +386,43 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       } else {
         execCommand('hiliteColor', highlightColor);
       }
+    }
+  };
+
+  // Save note title
+  const saveTitle = async () => {
+    if (!selectedNote || !editTitle.trim()) return;
+    try {
+      await notesAPI.update(selectedNote.id, { title: editTitle.trim() });
+      setSelectedNote({ ...selectedNote, title: editTitle.trim() });
+      setNotes(notes.map(n => n.id === selectedNote.id ? { ...n, title: editTitle.trim() } : n));
+      setMessage('Title saved!');
+      setTimeout(() => setMessage(''), 2000);
+    } catch (err) {
+      console.error('Failed to save title:', err);
+      setMessage('Failed to save title');
+    }
+  };
+
+  // Save note metadata (subject, topic, tags)
+  const saveNoteMetadata = async () => {
+    if (!selectedNote) return;
+    try {
+      setMessage('Saving note info...');
+      await notesAPI.update(selectedNote.id, {
+        title: editTitle,
+        subject: editSubject,
+        topic: editTopic,
+        tags: editTags
+      });
+      // Update local state
+      setSelectedNote({ ...selectedNote, title: editTitle, subject: editSubject, topic: editTopic, tags: editTags });
+      setNotes(notes.map(n => n.id === selectedNote.id ? { ...n, title: editTitle, subject: editSubject, topic: editTopic, tags: editTags } : n));
+      setMessage('Note info saved!');
+      setTimeout(() => setMessage(''), 2000);
+    } catch (err) {
+      console.error('Failed to save note metadata:', err);
+      setMessage('Failed to save note info');
     }
   };
 
@@ -612,8 +657,28 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             </button>
           )}
           <span style={{ fontSize: '20px' }}>🐵🍌</span>
-          <span style={{ fontWeight: 'bold', color: darkMode ? '#e4e4e7' : '#5D4037', fontSize: '14px' }}>
+          <span style={{ fontWeight: 'bold', color: darkMode ? '#e4e4e7' : '#5D4037', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             NotePeel - {selectedNote?.title || 'Untitled'}
+            {selectedNote && (
+              <button
+                onClick={() => { setEditTitle(selectedNote.title || ''); setShowRenameModal(true); }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  fontSize: '12px',
+                  color: darkMode ? '#a1a1aa' : '#5D4037',
+                  borderRadius: '3px',
+                  opacity: 0.7,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.3)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                title="Rename note"
+              >
+                ✏️
+              </button>
+            )}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -1529,6 +1594,95 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               {explanationText}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Rename Modal */}
+      {showRenameModal && selectedNote && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }} onClick={() => setShowRenameModal(false)}>
+          <div style={{ background: theme.cardBg, borderRadius: '12px', padding: '24px', width: '400px', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px 0', color: theme.text, fontSize: '16px' }}>📝 Rename Note</h3>
+            <input
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { saveTitle(); setShowRenameModal(false); } if (e.key === 'Escape') setShowRenameModal(false); }}
+              placeholder="Enter note title..."
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '12px',
+                fontSize: '14px',
+                border: `1px solid ${theme.border}`,
+                borderRadius: '8px',
+                outline: 'none',
+                background: theme.inputBg,
+                color: theme.text,
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+              <button
+                onClick={() => setShowRenameModal(false)}
+                style={{ padding: '8px 16px', border: `1px solid ${theme.border}`, background: 'transparent', borderRadius: '6px', cursor: 'pointer', color: theme.text }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { saveTitle(); setShowRenameModal(false); }}
+                style={{ padding: '8px 16px', border: 'none', background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', borderRadius: '6px', cursor: 'pointer', color: '#5D4037', fontWeight: 'bold' }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Peeling Loading Modal */}
+      {showPeelingModal && (
+        <div style={{ 
+          position: 'fixed', 
+          inset: 0, 
+          background: 'rgba(0,0,0,0.8)', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          zIndex: 4000,
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <img 
+            src="/monkey-loading.png" 
+            alt="Loading monkey" 
+            style={{ 
+              width: '200px', 
+              height: 'auto',
+              animation: 'bounce 1s ease-in-out infinite',
+            }} 
+          />
+          <div style={{ 
+            color: '#FFC107', 
+            fontSize: '24px', 
+            fontWeight: 'bold',
+            textAlign: 'center',
+            textShadow: '0 2px 10px rgba(0,0,0,0.5)'
+          }}>
+            🍌 Peeling your notes...
+          </div>
+          <div style={{
+            color: '#fff',
+            fontSize: '14px',
+            opacity: 0.7
+          }}>
+            This may take a few seconds
+          </div>
+          <style>{`
+            @keyframes bounce {
+              0%, 100% { transform: translateY(0); }
+              50% { transform: translateY(-15px); }
+            }
+          `}</style>
         </div>
       )}
 

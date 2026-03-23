@@ -19,6 +19,7 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [noteType, setNoteType] = useState<'default' | 'lecture' | 'meeting'>('default');
+  const [showPeelingModal, setShowPeelingModal] = useState(false);
 
   // Theme colors
   const theme = {
@@ -85,7 +86,7 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
     if (!file) return;
 
     setUploading(true);
-    setMessage('🍌 Peeling your notes with Gemini AI...');
+    setShowPeelingModal(true);
 
     try {
       const newNote = await notesAPI.upload(file, noteType, notebookId);
@@ -99,6 +100,7 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed'));
     } finally {
       setUploading(false);
+      setShowPeelingModal(false);
       e.target.value = '';
     }
   };
@@ -488,6 +490,53 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
               Close
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Peeling Loading Modal */}
+      {showPeelingModal && (
+        <div style={{ 
+          position: 'fixed', 
+          inset: 0, 
+          background: 'rgba(0,0,0,0.8)', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          zIndex: 4000,
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <img 
+            src="/monkey-loading.png" 
+            alt="Loading monkey" 
+            style={{ 
+              width: '200px', 
+              height: 'auto',
+              animation: 'bounce 1s ease-in-out infinite',
+            }} 
+          />
+          <div style={{ 
+            color: '#FFC107', 
+            fontSize: '24px', 
+            fontWeight: 'bold',
+            textAlign: 'center',
+            textShadow: '0 2px 10px rgba(0,0,0,0.5)'
+          }}>
+            🍌 Peeling your notes...
+          </div>
+          <div style={{
+            color: '#fff',
+            fontSize: '14px',
+            opacity: 0.7
+          }}>
+            This may take a few seconds
+          </div>
+          <style>{`
+            @keyframes bounce {
+              0%, 100% { transform: translateY(0); }
+              50% { transform: translateY(-15px); }
+            }
+          `}</style>
         </div>
       )}
     </div>
