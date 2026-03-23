@@ -1,7 +1,9 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status, UploadFile
+from PIL import Image
+import io
 
 from app.models.note import Note, ProcessingStatus
 from app.models.user import User
@@ -17,6 +19,74 @@ def clean(text: str) -> str:
     return ' '.join(text.split())
 
 
+def compress_image(file_bytes: bytes, max_width: int = 1500, quality: int = 85) -> Tuple[bytes, str]:
+    """
+    Compress and resize image before storage.
+    
+    Args:
+        file_bytes: Original image bytes
+        max_width: Maximum width in pixels (default 1500 - good for notes)
+        quality: JPEG quality 1-100 (default 85 - good balance)
+    
+    Returns:
+        Tuple of (compressed_bytes, mimetype)
+    """
+    original_size = len(file_bytes)
+    
+    # Skip compression for small images (under 200KB) - not worth it
+    if original_size < 200 * 1024:
+        print(f"⏭️ Image already small ({original_size/1024:.1f}KB), skipping compression")
+        return file_bytes, 'image/jpeg'
+    
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        
+        # Skip if image is already small dimensions
+        if img.width <= max_width and original_size < 500 * 1024:
+            print(f"⏭️ Image already optimized ({img.width}px, {original_size/1024:.1f}KB), skipping compression")
+            return file_bytes, 'image/jpeg'
+        
+        # Convert to RGB if needed (handles PNGs with transparency, RGBA, etc.)
+        if img.mode in ('RGBA', 'P', 'LA'):
+            # Create white background for transparent images
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Resize if too wide (maintain aspect ratio)
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.LANCZOS)
+        
+        # Save as JPEG with compression
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=quality, optimize=True)
+        compressed_bytes = output.getvalue()
+        
+        compressed_size = len(compressed_bytes)
+        
+        # Only use compressed version if it's actually smaller
+        if compressed_size >= original_size:
+            print(f"⏭️ Compression didn't help ({original_size/1024:.1f}KB → {compressed_size/1024:.1f}KB), using original")
+            return file_bytes, 'image/jpeg'
+        
+        # Log compression results
+        savings = ((original_size - compressed_size) / original_size) * 100
+        print(f"🗜️ Image compressed: {original_size/1024:.1f}KB → {compressed_size/1024:.1f}KB ({savings:.1f}% smaller)")
+        
+        return compressed_bytes, 'image/jpeg'
+        
+    except Exception as e:
+        # If compression fails, return original
+        print(f"⚠️ Image compression failed, using original: {e}")
+        return file_bytes, 'image/jpeg'
+
+
 class NoteController:
 
     @staticmethod
@@ -29,11 +99,14 @@ class NoteController:
     ) -> Note:
         file_content = await file.read()
 
-        # Upload image to R2 first
+        # Compress image before uploading to R2 (saves storage & bandwidth)
+        compressed_content, compressed_mimetype = compress_image(file_content)
+        
+        # Use compressed image for storage, but original for OCR (better quality)
         storage_result = upload_image(
-            file_bytes=file_content,
+            file_bytes=compressed_content,
             filename=file.filename or "upload.jpg",
-            mimetype=file.content_type or "image/jpeg"
+            mimetype=compressed_mimetype
         )
 
         note = Note(
@@ -41,7 +114,7 @@ class NoteController:
             image_key=storage_result["key"],
             image_url=storage_result["url"],
             image_filename=file.filename or "uploaded_image",
-            image_mimetype=file.content_type or "image/png",
+            image_mimetype=compressed_mimetype,
             status=ProcessingStatus.PROCESSING,
             owner_id=user.id
         )
@@ -50,6 +123,7 @@ class NoteController:
         db.refresh(note)
 
         try:
+            # Use ORIGINAL file_content for OCR (better quality = better text extraction)
             ocr_result = extract_structured_text(file_content, note_type=note_type)
 
             if ocr_result.get('error'):

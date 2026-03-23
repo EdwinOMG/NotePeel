@@ -50,6 +50,10 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showNoteInfo, setShowNoteInfo] = useState(false);
+  const [editSubject, setEditSubject] = useState('');
+  const [editTopic, setEditTopic] = useState('');
+  const [editTags, setEditTags] = useState('');
   
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -773,33 +777,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
-        {/* AI Menu */}
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'ai' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#E65100' }}
-          >
-            🧠 AI
-          </button>
-          {activeMenu === 'ai' && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
-              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
-                <span>🃏 Generate Flashcards</span>
-                {generatingFlashcards && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
-              </div>
-              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
-                <span>📋 Summarize Note</span>
-                {generatingSummary && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
-              </div>
-              <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
-                <span>💡 Explain Selection</span>
-                {generatingExplanation && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Format Menu */}
         <div style={{ position: 'relative' }}>
           <button
@@ -849,33 +826,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               </div>
               <div style={{...menuItemStyle, color: theme.text, fontWeight: lineSpacing === '2' ? 'bold' : 'normal'}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { setLineSpacing('2'); setActiveMenu(null); }}>
                 <span>{lineSpacing === '2' ? '✓ ' : ''}Double Spacing</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* AI Menu */}
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'ai' ? '#e0e0e0' : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#E65100' }}
-          >
-            AI Tools
-          </button>
-          {activeMenu === 'ai' && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '240px', zIndex: 1000 }}>
-              <div style={{...menuItemStyle, color: selectedNote ? '#333' : '#ccc'}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
-                <span>🃏 Generate Flashcards</span>
-                {generatingFlashcards && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
-              </div>
-              <div style={{...menuItemStyle, color: selectedNote ? '#333' : '#ccc'}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
-                <span>📋 Summarize Note</span>
-                {generatingSummary && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
-              </div>
-              <div style={{ borderTop: '1px solid #eee', margin: '4px 0' }} />
-              <div style={{...menuItemStyle}} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
-                <span>💡 Explain Selection</span>
-                {generatingExplanation && <span style={{ fontSize: '11px', color: '#888' }}>...</span>}
               </div>
             </div>
           )}
@@ -1026,76 +976,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => setZoom(Math.max(50, zoom - 25))} title="Zoom Out">−</button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => setZoom(Math.min(150, zoom + 25))} title="Zoom In">+</button>
 
-        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
-
-        {/* Zoom Controls */}
-        <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ padding: '6px 8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', background: 'white', width: '65px' }} title="Zoom">
-          <option value={25}>25%</option>
-          <option value={50}>50%</option>
-          <option value={75}>75%</option>
-          <option value={100}>100%</option>
-          <option value={125}>125%</option>
-          <option value={150}>150%</option>
-        </select>
-        <button style={toolbarBtnStyle} onClick={() => setZoom(Math.min(150, zoom + 25))} title="Zoom In">+</button>
-        <button style={toolbarBtnStyle} onClick={() => setZoom(Math.max(25, zoom - 25))} title="Zoom Out">−</button>
-
         <div style={{ flex: 1 }} />
-
-        {/* AI Quick Buttons */}
-        <button
-          onClick={handleGenerateFlashcards}
-          disabled={!selectedNote || generatingFlashcards}
-          style={{
-            padding: '6px 12px',
-            background: selectedNote ? '#E3F2FD' : '#f0f0f0',
-            color: selectedNote ? '#1565C0' : '#aaa',
-            border: '1px solid ' + (selectedNote ? '#90CAF9' : '#ddd'),
-            borderRadius: '4px',
-            cursor: selectedNote ? 'pointer' : 'not-allowed',
-            fontSize: '12px',
-            fontWeight: 'bold'
-          }}
-          title="Generate Flashcards"
-        >
-          {generatingFlashcards ? '...' : '🃏 Flashcards'}
-        </button>
-        <button
-          onClick={handleSummarize}
-          disabled={!selectedNote || generatingSummary}
-          style={{
-            padding: '6px 12px',
-            background: selectedNote ? '#E8F5E9' : '#f0f0f0',
-            color: selectedNote ? '#2E7D32' : '#aaa',
-            border: '1px solid ' + (selectedNote ? '#A5D6A7' : '#ddd'),
-            borderRadius: '4px',
-            cursor: selectedNote ? 'pointer' : 'not-allowed',
-            fontSize: '12px',
-            fontWeight: 'bold'
-          }}
-          title="Summarize Note"
-        >
-          {generatingSummary ? '...' : '📋 Summary'}
-        </button>
-        <button
-          onClick={handleExplain}
-          disabled={generatingExplanation}
-          style={{
-            padding: '6px 12px',
-            background: '#FFF3E0',
-            color: '#E65100',
-            border: '1px solid #FFCC80',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            fontWeight: 'bold'
-          }}
-          title="Explain selected text"
-        >
-          {generatingExplanation ? '...' : '💡 Explain'}
-        </button>
-
-        <div style={{ width: '1px', height: '24px', background: '#ddd', margin: '0 4px' }} />
 
         {/* Save Button */}
         <button

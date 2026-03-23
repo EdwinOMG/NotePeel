@@ -25,3 +25,6 @@ google-genai
  
 # cloudflare r2 is s3 compatible so boto3
 boto3>=1.28.0
+
+# Image Processing
+Pillow>=10.0.0
