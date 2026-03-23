@@ -82,6 +82,15 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
     }
   }, [initGoogleSignIn]);
 
+  // Check for session expired message on mount
+  useEffect(() => {
+    const sessionExpired = sessionStorage.getItem('sessionExpired');
+    if (sessionExpired) {
+      setError('Your session has expired. Please log in again.');
+      sessionStorage.removeItem('sessionExpired');
+    }
+  }, []);
+
   const handleSubmit = async () => {
     if (!email || !password) {
       setError('Please fill in all fields');

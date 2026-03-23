@@ -154,6 +154,10 @@ class NoteController:
             db.commit()
             db.refresh(note)
 
+            # Auto-categorize using Workers AI — runs after OCR, never blocks upload
+            from app.controllers.ai_controller import ai_controller
+            await ai_controller.auto_categorize(db, note)
+
         except Exception as e:
             note.status = ProcessingStatus.FAILED
             note.error_message = str(e)

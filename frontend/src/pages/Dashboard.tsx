@@ -777,6 +777,33 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
+        {/* AI Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
+            style={{ padding: '6px 12px', background: activeMenu === 'ai' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#E65100' }}
+          >
+            🧠 AI
+          </button>
+          {activeMenu === 'ai' && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
+              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
+                <span>🃏 Generate Flashcards</span>
+                {generatingFlashcards && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              </div>
+              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
+                <span>📋 Summarize Note</span>
+                {generatingSummary && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              </div>
+              <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
+                <span>💡 Explain Selection</span>
+                {generatingExplanation && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Format Menu */}
         <div style={{ position: 'relative' }}>
           <button

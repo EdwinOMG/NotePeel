@@ -15,6 +15,7 @@ from app.routes.notebook_routes import router as notebook_router
 from app.routes.ai_routes import router as ai_router
 from app.controllers.auth_controller import get_current_user
 from app.models.user import User
+from app.routes.ai_routes import router as ai_router
 
 # Import OCR service (now using Gemini)
 from ocr_service import extract_structured_text
