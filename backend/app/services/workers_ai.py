@@ -31,9 +31,13 @@ async def _call(system: str, user: str) -> str:
         
         result = data["result"]["response"]
         
-        # Cloudflare sometimes returns a list of tokens instead of a string
         if isinstance(result, list):
-            result = "".join(result)
+            # cloudflare might return token strings or a structured list
+            if all(isinstance(item, str) for item in result):
+                result = "".join(result)
+            else:
+                # Already structured data, re-serialize for consistent handling
+                result = json.dumps(result)
         
         return result
 
