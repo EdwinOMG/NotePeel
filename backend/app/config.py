@@ -5,6 +5,16 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
+
+    #cloudflare r2 settings
+    r2_endpoint: str
+    r2_access_key_id: str
+    r2_secret_access_key: str
+    r2_bucket_name: str
+    r2_account_id: str
+
+
+
     # App settings
     app_name: str = "NotePeel"
     debug: bool = True
@@ -25,8 +35,15 @@ class Settings(BaseSettings):
     google_cloud_api_key: str = ""
     google_application_credentials: str = ""
     
+    # Google OAuth
+    google_client_id: str = ""
+
     # Gemini AI
     gemini_api_key: str = ""
+
+    # Cloudflare Workers AI
+    cf_account_id: str = ""
+    cf_api_token: str = ""
 
     class Config:
         env_file = ".env"

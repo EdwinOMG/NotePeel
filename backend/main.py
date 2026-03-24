@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 from app.database import create_tables, get_db
 from app.routes.auth_routes import router as auth_router
 from app.routes.note_routes import router as note_router
+from app.routes.notebook_routes import router as notebook_router
 from app.routes.ai_routes import router as ai_router
 from app.controllers.auth_controller import get_current_user
 from app.models.user import User
+from app.routes.ai_routes import router as ai_router
 
 # Import OCR service (now using Gemini)
 from ocr_service import extract_structured_text
@@ -36,6 +38,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(note_router)
+app.include_router(notebook_router)
 app.include_router(ai_router)
 
 
@@ -59,8 +62,6 @@ async def ocr(
     - lecture: Optimized for lecture notes with equations and diagrams
     - meeting: Optimized for meeting notes with checkboxes and action items
     """
-    if file.content_type not in {"application/pdf", "image/png", "image/jpeg", "image/jpg"}:
-        return {"error": f"Unsupported content type: {file.content_type}"}
     contents = await file.read()
     if not contents:
         return {"error": "Uploaded file is empty"}
@@ -72,9 +73,6 @@ async def ocr(
 
     return structured_data
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
 
 @app.get("/")
 def root():
@@ -83,7 +81,5 @@ def root():
         "message": "Welcome to NotePeel API 🐵🍌",
         "version": "2.0.0",
         "ai": "Gemini",
-        "docs": "/docs",
-        "health": "/health"
-
+        "docs": "/docs"
     }

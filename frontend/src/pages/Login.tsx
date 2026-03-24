@@ -1,5 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { authAPI } from '../services/api';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+          renderButton: (element: HTMLElement, config: { theme?: string; size?: string; width?: number; text?: string }) => void;
+        };
+      };
+    };
+  }
+}
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 interface LoginProps {
   onLogin: (token: string, email: string) => void;
@@ -11,6 +26,70 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+
+  const handleGoogleResponse = useCallback(async (response: { credential: string }) => {
+    setError('');
+    setLoading(true);
+    try {
+      const result = await authAPI.googleLogin(response.credential);
+      // Store token temporarily so getMe can use it
+      localStorage.setItem('token', result.access_token);
+      const me = await authAPI.getMe();
+      onLogin(result.access_token, me.email);
+    } catch (err) {
+      localStorage.removeItem('token');
+      setError(err instanceof Error ? err.message : 'Google login failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [onLogin]);
+
+  const initGoogleSignIn = useCallback(() => {
+    if (GOOGLE_CLIENT_ID && window.google && googleButtonRef.current) {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 320,
+        text: 'signin_with',
+      });
+    }
+  }, [handleGoogleResponse]);
+
+  // Check for session expired message on mount + init Google Sign-In
+  useEffect(() => {
+    const sessionExpired = sessionStorage.getItem('sessionExpired');
+    if (sessionExpired) {
+      setError('Your session has expired. Please log in again.');
+      sessionStorage.removeItem('sessionExpired');
+    }
+
+    // Try to init immediately, or wait for script to load
+    if (window.google) {
+      initGoogleSignIn();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) {
+          initGoogleSignIn();
+          clearInterval(interval);
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [initGoogleSignIn]);
+
+  // Check for session expired message on mount
+  useEffect(() => {
+    const sessionExpired = sessionStorage.getItem('sessionExpired');
+    if (sessionExpired) {
+      setError('Your session has expired. Please log in again.');
+      sessionStorage.removeItem('sessionExpired');
+    }
+  }, []);
 
   const handleSubmit = async () => {
     if (!email || !password) {
@@ -54,7 +133,13 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
         </div>
         
         {error && (
-          <div style={{ background: '#ffebee', color: '#c62828', padding: '10px', borderRadius: '6px', marginBottom: '20px' }}>
+          <div style={{ 
+            background: error.includes('expired') ? '#FFF3E0' : '#ffebee', 
+            color: error.includes('expired') ? '#E65100' : '#c62828', 
+            padding: '10px', 
+            borderRadius: '6px', 
+            marginBottom: '20px' 
+          }}>
             {error}
           </div>
         )}
@@ -94,6 +179,17 @@ export default function Login({ onLogin, onSwitchToRegister }: LoginProps) {
           {loading ? 'Signing in...' : '🍌 Sign In'}
         </button>
         
+        {GOOGLE_CLIENT_ID && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', margin: '15px 0', gap: '10px' }}>
+              <div style={{ flex: 1, height: '1px', background: '#FFE082' }} />
+              <span style={{ color: '#8D6E63', fontSize: '13px' }}>or</span>
+              <div style={{ flex: 1, height: '1px', background: '#FFE082' }} />
+            </div>
+            <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center', marginBottom: '15px' }} />
+          </>
+        )}
+
         <p style={{ textAlign: 'center', margin: 0, color: '#8D6E63' }}>
           Don't have an account?{' '}
           <span onClick={onSwitchToRegister} style={{ color: '#FF9800', cursor: 'pointer', fontWeight: 'bold' }}>
