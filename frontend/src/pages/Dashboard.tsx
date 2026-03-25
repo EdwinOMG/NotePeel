@@ -50,6 +50,12 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
   const [flashcardFlipped, setFlashcardFlipped] = useState(false);
   const [flashcardTitle, setFlashcardTitle] = useState('');
   const [generatingFlashcards, setGeneratingFlashcards] = useState(false);
+  // Study mode state
+  const [studyMode, setStudyMode] = useState(false);
+  const [studyResults, setStudyResults] = useState<Record<number, 'know' | 'learning'>>({});
+  const [shuffledOrder, setShuffledOrder] = useState<number[]>([]);
+  const [isShuffled, setIsShuffled] = useState(false);
+  const [showStudyResults, setShowStudyResults] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryText, setSummaryText] = useState('');
   const [generatingSummary, setGeneratingSummary] = useState(false);
@@ -122,6 +128,33 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
   useEffect(() => {
     loadNotes();
   }, []);
+
+  // Flashcard study mode keyboard shortcuts
+  useEffect(() => {
+    if (!showFlashcards) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        setFlashcardFlipped(f => !f);
+      }
+      if (studyMode && flashcardFlipped) {
+        if (e.key === '1') handleStudyAnswer('learning');
+        if (e.key === '2') handleStudyAnswer('know');
+      }
+      if (!studyMode) {
+        if (e.key === 'ArrowLeft' && flashcardIndex > 0) {
+          setFlashcardIndex(i => i - 1);
+          setFlashcardFlipped(false);
+        }
+        if (e.key === 'ArrowRight' && flashcardIndex < flashcards.length - 1) {
+          setFlashcardIndex(i => i + 1);
+          setFlashcardFlipped(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [showFlashcards, studyMode, flashcardFlipped, flashcardIndex, flashcards.length]);
 
   // Load initial note if provided (when coming from notebook view)
   useEffect(() => {
@@ -700,6 +733,10 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
       setFlashcardTitle(result.title);
       setFlashcardIndex(0);
       setFlashcardFlipped(false);
+      setStudyMode(false);
+      setStudyResults({});
+      setShowStudyResults(false);
+      setIsShuffled(false);
       setShowFlashcards(true);
       if (result.cached) {
         setMessage('');
@@ -711,6 +748,63 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
     } finally {
       setGeneratingFlashcards(false);
     }
+  };
+
+  // Study mode helpers
+  const getCardOrder = () => isShuffled ? shuffledOrder : flashcards.map((_, i) => i);
+  const getCurrentCardIndex = () => getCardOrder()[flashcardIndex];
+
+  const startStudyMode = () => {
+    setStudyMode(true);
+    setStudyResults({});
+    setFlashcardIndex(0);
+    setFlashcardFlipped(false);
+    setShowStudyResults(false);
+  };
+
+  const toggleShuffle = () => {
+    if (!isShuffled) {
+      const indices = flashcards.map((_, i) => i);
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      setShuffledOrder(indices);
+    }
+    setIsShuffled(!isShuffled);
+    setFlashcardIndex(0);
+    setFlashcardFlipped(false);
+  };
+
+  const handleStudyAnswer = (result: 'know' | 'learning') => {
+    const cardIdx = getCurrentCardIndex();
+    setStudyResults(prev => ({ ...prev, [cardIdx]: result }));
+    const order = getCardOrder();
+    if (flashcardIndex < order.length - 1) {
+      setFlashcardIndex(flashcardIndex + 1);
+      setFlashcardFlipped(false);
+    } else {
+      setShowStudyResults(true);
+    }
+  };
+
+  const restartStudy = (onlyMissed: boolean) => {
+    if (onlyMissed) {
+      const missedIndices = Object.entries(studyResults)
+        .filter(([, v]) => v === 'learning')
+        .map(([k]) => Number(k));
+      if (missedIndices.length === 0) {
+        setShowStudyResults(false);
+        setStudyMode(false);
+        return;
+      }
+      setShuffledOrder(missedIndices);
+      setIsShuffled(true);
+    }
+    setStudyResults({});
+    setFlashcardIndex(0);
+    setFlashcardFlipped(false);
+    setShowStudyResults(false);
   };
 
   const handleSummarize = async (regenerate: boolean = false) => {
@@ -2044,80 +2138,200 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
       </div>
 
       {/* ── Flashcard Modal ── */}
-      {showFlashcards && flashcards.length > 0 && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowFlashcards(false)}>
+      {showFlashcards && flashcards.length > 0 && (() => {
+        const order = getCardOrder();
+        const currentCard = flashcards[getCurrentCardIndex()];
+        const knowCount = Object.values(studyResults).filter(v => v === 'know').length;
+        const learningCount = Object.values(studyResults).filter(v => v === 'learning').length;
+
+        return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => { setShowFlashcards(false); setStudyMode(false); setShowStudyResults(false); }}>
           <div style={{ background: theme.cardBg, borderRadius: '16px', padding: '30px', maxWidth: '550px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ margin: 0, color: theme.text, fontSize: '18px' }}>🃏 {flashcardTitle}</h2>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button 
-                  onClick={() => { setShowFlashcards(false); handleGenerateFlashcards(true); }} 
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {!studyMode && !showStudyResults && (
+                  <button
+                    onClick={startStudyMode}
+                    style={{ background: 'linear-gradient(135deg, #66BB6A 0%, #43A047 100%)', border: 'none', borderRadius: '6px', padding: '4px 12px', cursor: 'pointer', fontSize: '12px', color: '#fff', fontWeight: 'bold' }}
+                  >
+                    Study
+                  </button>
+                )}
+                <button
+                  onClick={toggleShuffle}
+                  style={{ background: isShuffled ? '#FF9800' : (darkMode ? '#3C3836' : '#f5f5f5'), border: `1px solid ${isShuffled ? '#FF9800' : theme.border}`, borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: isShuffled ? '#fff' : theme.textSecondary }}
+                  title={isShuffled ? 'Unshuffle cards' : 'Shuffle cards'}
+                >
+                  🔀
+                </button>
+                <button
+                  onClick={() => { setShowFlashcards(false); setStudyMode(false); setShowStudyResults(false); handleGenerateFlashcards(true); }}
                   style={{ background: darkMode ? '#3C3836' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}
                   title="Generate new flashcards"
                 >
-                  🔄 Regenerate
+                  🔄
                 </button>
-                <button onClick={() => setShowFlashcards(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
+                <button onClick={() => { setShowFlashcards(false); setStudyMode(false); setShowStudyResults(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
               </div>
             </div>
 
-            {/* Progress bar */}
-            <div style={{ display: 'flex', gap: '3px', marginBottom: '20px' }}>
-              {flashcards.map((_, i) => (
-                <div key={i} style={{ flex: 1, height: '4px', borderRadius: '2px', background: i <= flashcardIndex ? '#FF9800' : '#eee', transition: 'background 0.3s' }} />
-              ))}
-            </div>
+            {/* Study Results Screen */}
+            {showStudyResults ? (
+              <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+                  {knowCount === order.length ? '🎉' : knowCount >= order.length * 0.7 ? '👏' : '💪'}
+                </div>
+                <h3 style={{ margin: '0 0 8px', color: theme.text, fontSize: '22px' }}>Study Complete!</h3>
+                <p style={{ color: theme.textSecondary, margin: '0 0 24px', fontSize: '14px' }}>
+                  You reviewed {order.length} card{order.length !== 1 ? 's' : ''}
+                </p>
 
-            {/* Card */}
-            <div
-              onClick={() => setFlashcardFlipped(!flashcardFlipped)}
-              style={{
-                minHeight: '200px',
-                background: flashcardFlipped ? 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)' : 'linear-gradient(135deg, #FFF8E1 0%, #FFE082 100%)',
-                borderRadius: '12px',
-                padding: '30px',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                border: '2px solid ' + (flashcardFlipped ? '#A5D6A7' : '#FFB74D'),
-                textAlign: 'center',
-              }}
-            >
-              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#888', marginBottom: '12px' }}>
-                {flashcardFlipped ? 'ANSWER' : 'QUESTION'} — Card {flashcardIndex + 1}/{flashcards.length}
-              </div>
-              <div style={{ fontSize: '18px', lineHeight: '1.6', color: '#333', fontWeight: flashcardFlipped ? 'normal' : '500' }}>
-                {flashcardFlipped ? flashcards[flashcardIndex].answer : flashcards[flashcardIndex].question}
-              </div>
-              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '16px' }}>
-                Click to {flashcardFlipped ? 'see question' : 'reveal answer'}
-              </div>
-            </div>
+                {/* Score breakdown */}
+                <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '24px' }}>
+                  <div style={{ background: darkMode ? '#1B3A1B' : '#E8F5E9', borderRadius: '12px', padding: '16px 24px', minWidth: '100px' }}>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#4CAF50' }}>{knowCount}</div>
+                    <div style={{ fontSize: '12px', color: '#66BB6A', marginTop: '4px' }}>Know it</div>
+                  </div>
+                  <div style={{ background: darkMode ? '#3A1B1B' : '#FFEBEE', borderRadius: '12px', padding: '16px 24px', minWidth: '100px' }}>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#EF5350' }}>{learningCount}</div>
+                    <div style={{ fontSize: '12px', color: '#EF5350', marginTop: '4px' }}>Still learning</div>
+                  </div>
+                </div>
 
-            {/* Navigation */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px', alignItems: 'center' }}>
-              <button
-                onClick={() => { setFlashcardIndex(Math.max(0, flashcardIndex - 1)); setFlashcardFlipped(false); }}
-                disabled={flashcardIndex === 0}
-                style={{ padding: '8px 20px', border: `1px solid ${theme.border}`, borderRadius: '8px', background: flashcardIndex === 0 ? theme.menuHover : theme.menuBg, cursor: flashcardIndex === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', color: theme.text }}
-              >
-                Previous
-              </button>
-              <span style={{ color: theme.textSecondary, fontSize: '13px' }}>{flashcardIndex + 1} / {flashcards.length}</span>
-              <button
-                onClick={() => { setFlashcardIndex(Math.min(flashcards.length - 1, flashcardIndex + 1)); setFlashcardFlipped(false); }}
-                disabled={flashcardIndex === flashcards.length - 1}
-                style={{ padding: '8px 20px', border: 'none', borderRadius: '8px', background: flashcardIndex === flashcards.length - 1 ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', color: '#5D4037', cursor: flashcardIndex === flashcards.length - 1 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}
-              >
-                Next
-              </button>
-            </div>
+                {/* Score bar */}
+                <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '24px', background: darkMode ? '#3C3836' : '#eee' }}>
+                  {knowCount > 0 && <div style={{ width: `${(knowCount / order.length) * 100}%`, background: '#4CAF50', transition: 'width 0.5s' }} />}
+                  {learningCount > 0 && <div style={{ width: `${(learningCount / order.length) * 100}%`, background: '#EF5350', transition: 'width 0.5s' }} />}
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => restartStudy(false)}
+                    style={{ padding: '10px 20px', border: `1px solid ${theme.border}`, borderRadius: '8px', background: theme.menuBg, cursor: 'pointer', fontSize: '14px', color: theme.text }}
+                  >
+                    Study All Again
+                  </button>
+                  {learningCount > 0 && (
+                    <button
+                      onClick={() => restartStudy(true)}
+                      style={{ padding: '10px 20px', border: 'none', borderRadius: '8px', background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', cursor: 'pointer', fontSize: '14px', color: '#5D4037', fontWeight: 'bold' }}
+                    >
+                      Review Missed ({learningCount})
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setStudyMode(false); setShowStudyResults(false); setFlashcardIndex(0); setFlashcardFlipped(false); }}
+                    style={{ padding: '10px 20px', border: `1px solid ${theme.border}`, borderRadius: '8px', background: theme.menuBg, cursor: 'pointer', fontSize: '14px', color: theme.textSecondary }}
+                  >
+                    Browse Cards
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Progress bar */}
+                <div style={{ display: 'flex', gap: '3px', marginBottom: '20px' }}>
+                  {order.map((cardIdx, i) => {
+                    let bg = darkMode ? '#44403C' : '#eee';
+                    if (studyMode) {
+                      const result = studyResults[cardIdx];
+                      if (result === 'know') bg = '#4CAF50';
+                      else if (result === 'learning') bg = '#EF5350';
+                      else if (i === flashcardIndex) bg = '#FF9800';
+                    } else {
+                      bg = i <= flashcardIndex ? '#FF9800' : (darkMode ? '#44403C' : '#eee');
+                    }
+                    return <div key={i} style={{ flex: 1, height: '4px', borderRadius: '2px', background: bg, transition: 'background 0.3s' }} />;
+                  })}
+                </div>
+
+                {/* Card */}
+                <div
+                  onClick={() => setFlashcardFlipped(!flashcardFlipped)}
+                  style={{
+                    minHeight: '200px',
+                    background: flashcardFlipped ? 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)' : 'linear-gradient(135deg, #FFF8E1 0%, #FFE082 100%)',
+                    borderRadius: '12px',
+                    padding: '30px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    border: '2px solid ' + (flashcardFlipped ? '#A5D6A7' : '#FFB74D'),
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#888', marginBottom: '12px' }}>
+                    {flashcardFlipped ? 'ANSWER' : 'QUESTION'} — Card {flashcardIndex + 1}/{order.length}
+                  </div>
+                  <div style={{ fontSize: '18px', lineHeight: '1.6', color: '#333', fontWeight: flashcardFlipped ? 'normal' : '500' }}>
+                    {flashcardFlipped ? currentCard.answer : currentCard.question}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#aaa', marginTop: '16px' }}>
+                    {flashcardFlipped
+                      ? (studyMode ? 'Press 1 = Still Learning, 2 = Know It' : 'Click to see question')
+                      : 'Click or press Space to reveal answer'}
+                  </div>
+                </div>
+
+                {/* Navigation / Study buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px', alignItems: 'center' }}>
+                  {studyMode ? (
+                    flashcardFlipped ? (
+                      <>
+                        <button
+                          onClick={() => handleStudyAnswer('learning')}
+                          style={{ flex: 1, padding: '10px 16px', border: 'none', borderRadius: '8px', background: 'linear-gradient(135deg, #EF5350 0%, #E53935 100%)', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', marginRight: '10px' }}
+                        >
+                          Still Learning
+                        </button>
+                        <span style={{ color: theme.textSecondary, fontSize: '13px', minWidth: '60px', textAlign: 'center' }}>{flashcardIndex + 1} / {order.length}</span>
+                        <button
+                          onClick={() => handleStudyAnswer('know')}
+                          style={{ flex: 1, padding: '10px 16px', border: 'none', borderRadius: '8px', background: 'linear-gradient(135deg, #66BB6A 0%, #43A047 100%)', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', marginLeft: '10px' }}
+                        >
+                          Know It
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div />
+                        <span style={{ color: theme.textSecondary, fontSize: '13px' }}>Flip the card to answer</span>
+                        <div />
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => { setFlashcardIndex(Math.max(0, flashcardIndex - 1)); setFlashcardFlipped(false); }}
+                        disabled={flashcardIndex === 0}
+                        style={{ padding: '8px 20px', border: `1px solid ${theme.border}`, borderRadius: '8px', background: flashcardIndex === 0 ? theme.menuHover : theme.menuBg, cursor: flashcardIndex === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', color: theme.text }}
+                      >
+                        Previous
+                      </button>
+                      <span style={{ color: theme.textSecondary, fontSize: '13px' }}>{flashcardIndex + 1} / {order.length}</span>
+                      <button
+                        onClick={() => { setFlashcardIndex(Math.min(order.length - 1, flashcardIndex + 1)); setFlashcardFlipped(false); }}
+                        disabled={flashcardIndex === order.length - 1}
+                        style={{ padding: '8px 20px', border: 'none', borderRadius: '8px', background: flashcardIndex === order.length - 1 ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', color: '#5D4037', cursor: flashcardIndex === order.length - 1 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+                      >
+                        Next
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Summary Modal ── */}
       {showSummary && (
