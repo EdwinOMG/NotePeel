@@ -1,10 +1,14 @@
 import os
 import json
 import re
+import io
 
 from google import genai
+from PIL import Image, ImageFilter, ImageOps
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+STRUCTURED_MODEL = "gemini-2.5-flash"
+PLAIN_TEXT_MODEL = "gemini-2.5-flash-lite"
 
 
 def detect_image_type(image_bytes: bytes) -> str:
@@ -90,49 +94,259 @@ PROMPTS = {
 """
 }
 
+PLAIN_TEXT_PROMPTS = {
+    "default": """
+Transcribe every visible word from this handwritten note in natural reading order.
+Return ONLY plain text.
 
-def extract_structured_text(image_bytes: bytes, note_type: str = "default") -> dict:
-    mime = detect_image_type(image_bytes)
-    prompt = PROMPTS.get(note_type, PROMPTS["default"])
+Rules:
+- Do not summarize or rewrite
+- Preserve headings, bullets, and line breaks when possible
+- If a word is unclear, make your best guess instead of omitting nearby readable text
+- Focus on transcription completeness over layout analysis
+""",
+    "lecture": """
+Transcribe every visible word from this lecture note in natural reading order.
+Return ONLY plain text.
 
+Rules:
+- Do not summarize or rewrite
+- Preserve headings, bullets, equations, and line breaks when possible
+- If a word is unclear, make your best guess instead of omitting nearby readable text
+- Focus on transcription completeness over layout analysis
+""",
+    "meeting": """
+Transcribe every visible word from this meeting note in natural reading order.
+Return ONLY plain text.
+
+Rules:
+- Do not summarize or rewrite
+- Preserve headings, bullets, checkboxes, and line breaks when possible
+- If a word is unclear, make your best guess instead of omitting nearby readable text
+- Focus on transcription completeness over layout analysis
+""",
+}
+
+STRUCTURED_GENERATION_CONFIG = {
+    "temperature": 0,
+    "top_p": 0.1,
+    "top_k": 1,
+    "candidate_count": 1,
+    "max_output_tokens": 8192,
+    "response_mime_type": "application/json",
+}
+
+PLAIN_TEXT_GENERATION_CONFIG = {
+    "temperature": 0,
+    "top_p": 0.1,
+    "top_k": 1,
+    "candidate_count": 1,
+    "max_output_tokens": 8192,
+    "response_mime_type": "text/plain",
+}
+
+
+def _count_words(text: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", text or ""))
+
+
+def _normalize_json_response(raw: str) -> str:
+    raw = raw.strip()
+    raw = re.sub(r"^```json\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    return raw
+
+
+def _generate_content(prompt: str, image_bytes: bytes, mime: str, config: dict, model: str = STRUCTURED_MODEL) -> str:
     response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model=model,
         contents=[
             prompt,
             {"inline_data": {"mime_type": mime, "data": image_bytes}}
-        ]
+        ],
+        config=config,
     )
 
     raw = response.text
-    if not raw:
-        reason = "empty response"
-        try:
-            reason = str(response.prompt_feedback) or reason
-        except Exception:
-            pass
+    if raw:
+        return raw
+
+    reason = "empty response"
+    try:
+        reason = str(response.prompt_feedback) or reason
+    except Exception:
+        pass
+    raise ValueError(f"Gemini returned no response ({reason})")
+
+
+def _preprocess_image(image_bytes: bytes) -> tuple[bytes, str]:
+    """Light preprocessing applied to all passes: EXIF fix, white background, JPEG conversion."""
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image = ImageOps.exif_transpose(image)
+        if image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'P':
+                image = image.convert('RGBA')
+            alpha = image.getchannel('A') if 'A' in image.getbands() else None
+            background.paste(image, mask=alpha)
+            image = background
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
+        output = io.BytesIO()
+        image.save(output, format='JPEG', quality=92, optimize=True)
+        return output.getvalue(), "image/jpeg"
+    except Exception:
+        return image_bytes, detect_image_type(image_bytes)
+
+
+def _normalize_image_for_retry(image_bytes: bytes) -> tuple[bytes, str]:
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image = ImageOps.exif_transpose(image)
+
+        if image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'P':
+                image = image.convert('RGBA')
+            alpha = image.getchannel('A') if 'A' in image.getbands() else None
+            background.paste(image, mask=alpha)
+            image = background
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        if image.width > 2200:
+            ratio = 2200 / image.width
+            image = image.resize(
+                (2200, max(1, int(image.height * ratio))),
+                Image.LANCZOS,
+            )
+
+        image = ImageOps.autocontrast(image, cutoff=1)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1.4, percent=130, threshold=3))
+
+        output = io.BytesIO()
+        image.save(output, format='JPEG', quality=92, optimize=True)
+        return output.getvalue(), "image/jpeg"
+    except Exception:
+        return image_bytes, detect_image_type(image_bytes)
+
+
+def _run_structured_pass(image_bytes: bytes, note_type: str = "default") -> dict:
+    image_bytes, mime = _preprocess_image(image_bytes)
+    prompt = PROMPTS.get(note_type, PROMPTS["default"])
+
+    try:
+        raw = _generate_content(prompt, image_bytes, mime, STRUCTURED_GENERATION_CONFIG, model=STRUCTURED_MODEL)
+    except Exception as exc:
         return {
             "elements": [],
             "page_layout": "unknown",
             "raw_text": "",
-            "error": f"Gemini returned no response ({reason})"
+            "error": str(exc),
         }
 
-    raw = raw.strip()
-    raw = re.sub(r"^```json\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
     try:
-        structured = json.loads(raw)
-    except json.JSONDecodeError as e:
+        structured = json.loads(_normalize_json_response(raw))
+    except json.JSONDecodeError as exc:
         return {
             "elements": [],
             "page_layout": "unknown",
-            "raw_text": raw,
-            "error": f"JSON parse failed: {str(e)}"
+            "raw_text": raw.strip(),
+            "error": f"JSON parse failed: {str(exc)}"
         }
 
     structured["metadata"] = {
-        "model": "gemini-2.5-flash-lite",
+        "model": STRUCTURED_MODEL,
         "note_type": note_type,
+        "strategy": "structured_layout",
     }
 
     return structured
+
+
+def _run_plain_text_fallback(image_bytes: bytes, note_type: str = "default") -> dict:
+    mime = detect_image_type(image_bytes)
+    prompt = PLAIN_TEXT_PROMPTS.get(note_type, PLAIN_TEXT_PROMPTS["default"])
+
+    try:
+        raw_text = _generate_content(prompt, image_bytes, mime, PLAIN_TEXT_GENERATION_CONFIG, model=PLAIN_TEXT_MODEL).strip()
+    except Exception as exc:
+        return {
+            "elements": [],
+            "page_layout": "unknown",
+            "raw_text": "",
+            "error": str(exc),
+        }
+
+    return {
+        "elements": [],
+        "page_layout": "unknown",
+        "raw_text": raw_text,
+        "metadata": {
+            "model": PLAIN_TEXT_MODEL,
+            "note_type": note_type,
+            "strategy": "plain_text_fallback",
+        }
+    }
+
+
+def _should_try_plain_text_fallback(result: dict) -> bool:
+    if result.get("error"):
+        return True
+
+    raw_text = (result.get("raw_text") or "").strip()
+    if not raw_text:
+        return True
+
+    word_count = _count_words(raw_text)
+    element_count = len(result.get("elements") or [])
+    return word_count < 25 or (word_count < 45 and element_count <= 2)
+
+
+def _fallback_is_better(primary: dict, fallback: dict) -> bool:
+    if fallback.get("error"):
+        return False
+
+    primary_words = _count_words(primary.get("raw_text") or "")
+    fallback_words = _count_words(fallback.get("raw_text") or "")
+
+    if primary.get("error") or primary_words == 0:
+        return fallback_words > 0
+
+    return fallback_words >= max(primary_words + 5, int(primary_words * 1.2))
+
+
+def _tag_pass(result: dict, pass_number: int) -> dict:
+    if "metadata" not in result:
+        result["metadata"] = {}
+    result["metadata"]["pass"] = pass_number
+    return result
+
+
+def extract_structured_text(image_bytes: bytes, note_type: str = "default") -> dict:
+    # Pass 1: structured extraction on lightly preprocessed image
+    primary_result = _run_structured_pass(image_bytes, note_type=note_type)
+
+    if not _should_try_plain_text_fallback(primary_result):
+        return _tag_pass(primary_result, 1)
+
+    # Pass 2: structured extraction again on heavily normalized image
+    retry_image_bytes, _ = _normalize_image_for_retry(image_bytes)
+    structured_retry = _run_structured_pass(retry_image_bytes, note_type=note_type)
+
+    if not _should_try_plain_text_fallback(structured_retry):
+        return _tag_pass(structured_retry, 2)
+
+    # Pass 3: plain text fallback on normalized image (last resort)
+    fallback_result = _run_plain_text_fallback(retry_image_bytes, note_type=note_type)
+
+    best = max(
+        [structured_retry, fallback_result],
+        key=lambda r: _count_words(r.get("raw_text") or "") if not r.get("error") else 0
+    )
+
+    if _fallback_is_better(primary_result, best):
+        return _tag_pass(best, 3)
+
+    return _tag_pass(primary_result, 1)
