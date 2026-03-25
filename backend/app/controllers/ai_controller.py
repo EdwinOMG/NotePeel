@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.note import Note
-from app.models.ai_models import FlashcardSet, Flashcard, AISummary, AIExplanation
+from app.models.flashcard import FlashcardSet, Flashcard, AISummary, AIExplanation
 from app.models.user import User
 from app.services.workers_ai import (
     summarize_note,

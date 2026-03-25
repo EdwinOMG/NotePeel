@@ -31,6 +31,9 @@ export interface Note {
   status: string;
   created_at: string;
   processed_at?: string;
+  raw_text?: string;
+  structured_text?: string;
+  error_message?: string;
   subject?: string;
   topic?: string;
   tags?: string;

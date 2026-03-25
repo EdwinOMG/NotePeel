@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status, UploadFile
 from PIL import Image
 import io
+import re
 
 from app.models.note import Note, ProcessingStatus
 from app.models.user import User
@@ -90,6 +91,47 @@ def compress_image(file_bytes: bytes, max_width: int = 1500, quality: int = 85) 
 class NoteController:
 
     @staticmethod
+    def _word_count(text: str) -> int:
+        return len(re.findall(r"\b[\w'-]+\b", text or ""))
+
+    @staticmethod
+    def _html_to_text(html: str) -> str:
+        return clean(
+            re.sub(
+                r"<[^>]+>",
+                " ",
+                html.replace("<br>", " ").replace("<br/>", " ").replace("<br />", " ").replace("&nbsp;", " "),
+            )
+        )
+
+    @staticmethod
+    def _select_structured_html(elements: list, raw_text: str) -> str:
+        structured_html = NoteController._build_html(elements)
+        raw_text = (raw_text or '').strip()
+
+        if not structured_html:
+            return raw_text.replace('\n', '<br>')
+
+        if not raw_text:
+            return structured_html
+
+        structured_words = NoteController._word_count(NoteController._html_to_text(structured_html))
+        raw_words = NoteController._word_count(raw_text)
+
+        # If the layout pass mostly captured titles/headers, prefer the fuller transcript.
+        if raw_words >= 20 and structured_words < max(12, int(raw_words * 0.6)):
+            return raw_text.replace('\n', '<br>')
+
+        return structured_html
+
+    @staticmethod
+    def _get_public_status(note: Note) -> str:
+        has_text = bool((note.raw_text or '').strip() or (note.structured_text or '').strip())
+        if note.status == ProcessingStatus.FAILED and has_text:
+            return ProcessingStatus.COMPLETED.value
+        return note.status.value if hasattr(note.status, 'value') else str(note.status)
+
+    @staticmethod
     async def create_note(
         db: Session,
         file: UploadFile,
@@ -140,28 +182,33 @@ class NoteController:
             )
 
             cleaned_elements = NoteController._clean_elements(sorted_elements)
-            structured_html = NoteController._build_html(cleaned_elements)
+            raw_text = ocr_result.get('raw_text', '')
+            structured_html = NoteController._select_structured_html(cleaned_elements, raw_text)
 
-            if not structured_html:
-                raw_text = ocr_result.get('raw_text', '')
-                structured_html = raw_text.replace('\n', '<br>')
-
-            note.raw_text = ocr_result.get('raw_text', '')
+            note.raw_text = raw_text
             note.structured_text = structured_html
             note.status = ProcessingStatus.COMPLETED
+            note.error_message = None
             note.processed_at = datetime.utcnow()
 
             db.commit()
             db.refresh(note)
 
-            # Auto-categorize using Workers AI — runs after OCR, never blocks upload
-            from app.controllers.ai_controller import ai_controller
-            await ai_controller.auto_categorize(db, note)
-
         except Exception as e:
             note.status = ProcessingStatus.FAILED
             note.error_message = str(e)
             db.commit()
+            db.refresh(note)
+            return note
+
+        try:
+            # Auto-categorize using Workers AI after OCR succeeds.
+            # Categorization failures should never overwrite a successful extraction.
+            from app.controllers.ai_controller import ai_controller
+            await ai_controller.auto_categorize(db, note)
+        except Exception as e:
+            db.rollback()
+            print(f"⚠️ Auto-categorization failed for note {note.id}: {e}")
             db.refresh(note)
 
         return note
@@ -184,7 +231,7 @@ class NoteController:
             "subject": note.subject,
             "topic": note.topic,
             "tags": note.tags,
-            "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
+            "status": NoteController._get_public_status(note),
             "error_message": note.error_message,
             "created_at": note.created_at,
             "processed_at": note.processed_at,
@@ -200,8 +247,6 @@ class NoteController:
 
         db.delete(note)
         db.commit()
-
-    # ── Everything below is unchanged ─────────────────────────────────────────
 
     @staticmethod
     def _clean_elements(elements: list) -> list:
@@ -263,7 +308,7 @@ class NoteController:
         if el_type == 'header':
             size = '1.5em' if style.get('is_large') else '1.2em'
             base = (
-                f'font-size: {size}; color: #3E2723; margin: 20px 0 10px; '
+                f'font-size: {size}; color: #FF9800; margin: 20px 0 10px; '
                 f'text-transform: uppercase; letter-spacing: 0.06em;'
             )
             if container == 'box':
@@ -373,26 +418,47 @@ class NoteController:
             right_els = [e for e in band if 'right' in e.get('position', {}).get('region', '')]
 
             if left_els and right_els:
-                right_x = min(e.get('position', {}).get('x_percent', 50) for e in right_els)
-                left_x = min(e.get('position', {}).get('x_percent', 0) for e in left_els)
-                right_x = max(20, min(80, right_x))
-                left_fr = round(right_x - left_x)
-                right_fr = round(100 - right_x)
-                if left_fr <= 0:
-                    left_fr = 50
-                if right_fr <= 0:
-                    right_fr = 50
+                center_els = [
+                    e for e in band
+                    if 'left' not in e.get('position', {}).get('region', '')
+                    and 'right' not in e.get('position', {}).get('region', '')
+                ]
 
                 left_html = ''.join(NoteController._element_to_html(e) for e in left_els)
                 right_html = ''.join(NoteController._element_to_html(e) for e in right_els)
 
-                html_parts.append(
-                    f'<div style="display:grid;grid-template-columns:{left_fr}fr {right_fr}fr;'
-                    f'gap:24px;margin:12px 0;">'
-                    f'<div>{left_html}</div>'
-                    f'<div>{right_html}</div>'
-                    f'</div>'
-                )
+                if center_els:
+                    # 3-column grid: left | center (wider) | right
+                    center_html = ''.join(
+                        NoteController._element_to_html(e)
+                        for e in sorted(center_els, key=lambda e: e.get('position', {}).get('y_percent', 0))
+                    )
+                    html_parts.append(
+                        f'<div style="display:grid;grid-template-columns:1fr 2fr 1fr;'
+                        f'gap:16px;margin:12px 0;align-items:start;">'
+                        f'<div>{left_html}</div>'
+                        f'<div style="text-align:center;">{center_html}</div>'
+                        f'<div style="text-align:right;">{right_html}</div>'
+                        f'</div>'
+                    )
+                else:
+                    right_x = min(e.get('position', {}).get('x_percent', 50) for e in right_els)
+                    left_x = min(e.get('position', {}).get('x_percent', 0) for e in left_els)
+                    right_x = max(20, min(80, right_x))
+                    left_fr = round(right_x - left_x)
+                    right_fr = round(100 - right_x)
+                    if left_fr <= 0:
+                        left_fr = 50
+                    if right_fr <= 0:
+                        right_fr = 50
+
+                    html_parts.append(
+                        f'<div style="display:grid;grid-template-columns:{left_fr}fr {right_fr}fr;'
+                        f'gap:24px;margin:12px 0;">'
+                        f'<div>{left_html}</div>'
+                        f'<div>{right_html}</div>'
+                        f'</div>'
+                    )
             else:
                 for el in sorted(band, key=lambda e: e.get('position', {}).get('x_percent', 0)):
                     html_parts.append(NoteController._element_to_html(el))

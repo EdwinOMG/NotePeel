@@ -1,17 +1,31 @@
 import { useState, useEffect, useRef } from 'react';
 import { notesAPI } from '../services/api';
 import type { Note, NoteWithImage, Categories } from '../types';
+import { getUploadFeedback, prepareContentForDisplay } from '../utils/noteExtraction';
+import ProfileMenu from '../components/ProfileMenu';
+
+const getNotebookContrastColor = (hex: string) => {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.45 ? '#1a1a1a' : '#ffffff';
+};
 
 interface DashboardProps {
   userEmail: string;
   onLogout: () => void;
+  onOpenSettings: () => void;
   initialNoteId?: number;
   notebookId?: number;
+  notebookColor?: string;
   onBack?: () => void;
   darkMode?: boolean;
 }
 
-export default function Dashboard({ userEmail, onLogout, initialNoteId, notebookId, onBack, darkMode = false }: DashboardProps) {
+export default function Dashboard({ userEmail, onLogout, onOpenSettings, initialNoteId, notebookId, notebookColor, onBack, darkMode = false }: DashboardProps) {
+  const TABLE_PICKER_MAX_ROWS = 8;
+  const TABLE_PICKER_MAX_COLS = 10;
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<NoteWithImage | null>(null);
   const [message, setMessage] = useState('');
@@ -51,6 +65,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showNoteInfo, setShowNoteInfo] = useState(false);
+  const [dismissedFailedBanner, setDismissedFailedBanner] = useState(false);
   const [editSubject, setEditSubject] = useState('');
   const [editTopic, setEditTopic] = useState('');
   const [editTags, setEditTags] = useState('');
@@ -59,24 +74,29 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showPeelingModal, setShowPeelingModal] = useState(false);
+  const [tablePickerSize, setTablePickerSize] = useState({ rows: 0, cols: 0 });
+  const [showTablePicker, setShowTablePicker] = useState(false);
+  const [hoveredTopMenu, setHoveredTopMenu] = useState<string | null>(null);
   
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
+  const tablePickerCloseTimeoutRef = useRef<number | null>(null);
 
   // Theme colors
   const theme = {
-    bg: darkMode ? '#1a1a2e' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
-    cardBg: darkMode ? '#252542' : '#ffffff',
-    headerBg: darkMode ? '#2d2d4a' : '#ffffff',
-    editorBg: darkMode ? '#1e1e32' : '#ffffff',
-    text: darkMode ? '#e4e4e7' : '#333333',
-    textSecondary: darkMode ? '#a1a1aa' : '#666666',
-    border: darkMode ? '#3f3f5a' : '#ddd',
-    menuBg: darkMode ? '#252542' : '#ffffff',
-    menuHover: darkMode ? '#3f3f5a' : '#f5f5f5',
-    toolbarBg: darkMode ? '#2d2d4a' : '#f8f8f8',
-    statusBar: darkMode ? '#252542' : '#f0f0f0',
-    inputBg: darkMode ? '#1a1a2e' : '#ffffff',
+    bg: darkMode ? '#1C1917' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
+    cardBg: darkMode ? '#292524' : '#ffffff',
+    headerBg: darkMode ? '#211F1C' : '#ffffff',
+    editorBg: darkMode ? '#292524' : '#ffffff',
+    text: darkMode ? '#F5F0E8' : '#333333',
+    textSecondary: darkMode ? '#A8A29E' : '#666666',
+    border: darkMode ? '#44403C' : '#ddd',
+    menuBg: darkMode ? '#292524' : '#ffffff',
+    menuHover: darkMode ? '#3C3836' : '#f5f5f5',
+    toolbarBg: darkMode ? '#211F1C' : '#f8f8f8',
+    statusBar: darkMode ? '#292524' : '#f0f0f0',
+    inputBg: darkMode ? '#1C1917' : '#ffffff',
   };
 
   useEffect(() => {
@@ -98,9 +118,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       if (editorRef.current) {
         const content = fullNote.structured_text || fullNote.raw_text || '';
         if (content.includes('<') && content.includes('>')) {
-          editorRef.current.innerHTML = content;
+          editorRef.current.innerHTML = prepareContentForDisplay(content, darkMode);
         } else {
-          editorRef.current.innerHTML = content.replace(/\n/g, '<br>');
+          editorRef.current.innerHTML = prepareContentForDisplay(content.replace(/\n/g, '<br>'), darkMode);
         }
         updateCounts();
       }
@@ -113,6 +133,23 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     const handleClickOutside = () => setActiveMenu(null);
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu !== 'insert') {
+      if (tablePickerCloseTimeoutRef.current) {
+        window.clearTimeout(tablePickerCloseTimeoutRef.current);
+        tablePickerCloseTimeoutRef.current = null;
+      }
+      setShowTablePicker(false);
+      setTablePickerSize({ rows: 0, cols: 0 });
+    }
+  }, [activeMenu]);
+
+  useEffect(() => () => {
+    if (tablePickerCloseTimeoutRef.current) {
+      window.clearTimeout(tablePickerCloseTimeoutRef.current);
+    }
   }, []);
 
   // Update word/char count
@@ -203,8 +240,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       const newNote = await notesAPI.upload(file, noteType);
       setNotes([newNote, ...notes]);
       await viewNote(newNote);
-      setMessage('🐵 Note peeled successfully!');
-      setTimeout(() => setMessage(''), 3000);
+      const feedback = getUploadFeedback(newNote);
+      setMessage(feedback.message);
+      setTimeout(() => setMessage(''), feedback.timeoutMs);
     } catch (err) {
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Upload failed'));
     } finally {
@@ -218,13 +256,14 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     try {
       const fullNote = await notesAPI.getById(note.id);
       setSelectedNote(fullNote);
+      setDismissedFailedBanner(false);
       if (editorRef.current) {
         const content = fullNote.structured_text || fullNote.raw_text || '';
         // Check if content is already HTML
         if (content.includes('<') && content.includes('>')) {
-          editorRef.current.innerHTML = content;
+          editorRef.current.innerHTML = prepareContentForDisplay(content, darkMode);
         } else {
-          editorRef.current.innerHTML = content.replace(/\n/g, '<br>');
+          editorRef.current.innerHTML = prepareContentForDisplay(content.replace(/\n/g, '<br>'), darkMode);
         }
         updateCounts();
       }
@@ -278,15 +317,169 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     updateCounts();
   };
 
+  const isNodeInsideEditor = (node: Node | null) => {
+    if (!node || !editorRef.current) return false;
+    return node === editorRef.current || editorRef.current.contains(node);
+  };
+
+  const saveSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    if (!isNodeInsideEditor(range.commonAncestorContainer)) return;
+
+    savedSelectionRef.current = range.cloneRange();
+  };
+
+  const restoreSelection = () => {
+    if (!editorRef.current) return false;
+
+    const selection = window.getSelection();
+    if (!selection) return false;
+
+    editorRef.current.focus();
+
+    if (savedSelectionRef.current) {
+      selection.removeAllRanges();
+      selection.addRange(savedSelectionRef.current.cloneRange());
+      return true;
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(editorRef.current);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    savedSelectionRef.current = range.cloneRange();
+    return true;
+  };
+
+  const insertHTMLAtCursor = (html: string) => {
+    if (!editorRef.current) return;
+
+    restoreSelection();
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    const template = document.createElement('template');
+    template.innerHTML = html.trim();
+    const fragment = template.content;
+    const lastNode = fragment.lastChild;
+
+    range.insertNode(fragment);
+
+    const nextRange = document.createRange();
+    if (lastNode) {
+      nextRange.setStartAfter(lastNode);
+    } else {
+      nextRange.selectNodeContents(editorRef.current);
+      nextRange.collapse(false);
+    }
+    nextRange.collapse(true);
+
+    selection.removeAllRanges();
+    selection.addRange(nextRange);
+    savedSelectionRef.current = nextRange.cloneRange();
+    editorRef.current.focus();
+    updateCounts();
+  };
+
+  const escapeHTML = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
   const execCommand = (command: string, value?: string) => {
+    restoreSelection();
     document.execCommand(command, false, value);
+    saveSelection();
     editorRef.current?.focus();
+    updateCounts();
   };
 
   const insertPageBreak = () => {
     const pageBreak = '<div style="page-break-after: always; border-bottom: 2px dashed #ccc; margin: 30px 0; height: 1px;"></div><p><br></p>';
-    document.execCommand('insertHTML', false, pageBreak);
-    editorRef.current?.focus();
+    insertHTMLAtCursor(pageBreak);
+  };
+
+  const insertTable = (rows: number, cols: number) => {
+    const borderColor = darkMode ? '#555' : '#ccc';
+    let html = '<table style="border-collapse: collapse; width: 100%; margin: 12px 0;">';
+    for (let r = 0; r < rows; r++) {
+      html += '<tr>';
+      for (let c = 0; c < cols; c++) {
+        const cellStyle = `border: 1px solid ${borderColor}; padding: 8px 12px; min-width: 60px;${r === 0 ? ' font-weight: bold; background: ' + (darkMode ? '#211F1C' : '#f5f5f5') + ';' : ''}`;
+        html += `<td style="${cellStyle}">${r === 0 ? 'Header' : '&nbsp;'}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</table><p><br></p>';
+    insertHTMLAtCursor(html);
+    setTablePickerSize({ rows: 0, cols: 0 });
+  };
+
+  const insertLink = () => {
+    const selectedText = savedSelectionRef.current?.toString() || window.getSelection()?.toString() || '';
+    const url = prompt('Enter URL:', 'https://');
+    if (!url) return;
+    const text = selectedText || prompt('Enter link text:', url) || url;
+    const linkHTML = `<a href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer" style="color: #1565C0; text-decoration: underline;">${escapeHTML(text)}</a>`;
+    insertHTMLAtCursor(linkHTML);
+  };
+
+  const openTablePicker = () => {
+    if (tablePickerCloseTimeoutRef.current) {
+      window.clearTimeout(tablePickerCloseTimeoutRef.current);
+      tablePickerCloseTimeoutRef.current = null;
+    }
+    setShowTablePicker(true);
+  };
+
+  const closeTablePickerSoon = () => {
+    if (tablePickerCloseTimeoutRef.current) {
+      window.clearTimeout(tablePickerCloseTimeoutRef.current);
+    }
+    tablePickerCloseTimeoutRef.current = window.setTimeout(() => {
+      setShowTablePicker(false);
+      setTablePickerSize({ rows: 0, cols: 0 });
+      tablePickerCloseTimeoutRef.current = null;
+    }, 180);
+  };
+
+  const handleTopMenuHover = (menu: string) => {
+    setHoveredTopMenu(menu);
+    if (activeMenu && activeMenu !== menu) {
+      setActiveMenu(menu);
+    }
+  };
+
+  const getTopMenuButtonStyle = (
+    menu: string,
+    options?: { color?: string; fontWeight?: React.CSSProperties['fontWeight'] }
+  ): React.CSSProperties => {
+    const isActive = activeMenu === menu;
+    const isHovered = hoveredTopMenu === menu;
+
+    return {
+      padding: '8px 14px',
+      background: isActive ? theme.menuHover : isHovered ? (darkMode ? 'rgba(255,255,255,0.06)' : '#f7f3eb') : 'transparent',
+      border: 'none',
+      borderRadius: '8px 8px 0 0',
+      cursor: 'pointer',
+      fontSize: '13px',
+      color: options?.color ?? theme.text,
+      fontWeight: options?.fontWeight ?? 500,
+      boxShadow: isActive || isHovered ? `inset 0 -2px 0 ${darkMode ? '#FFB74D' : '#F57C00'}` : 'none',
+      transition: 'background 0.14s ease, box-shadow 0.14s ease, color 0.14s ease',
+    };
   };
 
   const exportToPDF = () => {
@@ -624,13 +817,18 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       e.preventDefault();
       execCommand('insertOrderedList');
     }
+    // Ctrl+K - Insert Link
+    if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault();
+      insertLink();
+    }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'Segoe UI, Arial, sans-serif', background: darkMode ? '#1a1a2e' : '#f0f0f0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'Segoe UI, Arial, sans-serif', background: darkMode ? '#1C1917' : '#f0f0f0' }}>
       {/* Title Bar */}
       <div style={{
-        background: darkMode ? '#2d2d4a' : 'linear-gradient(180deg, #FFC107 0%, #FF9800 100%)',
+        background: darkMode ? 'linear-gradient(135deg, #6C4B14 0%, #5A400F 100%)' : 'linear-gradient(180deg, #FFC107 0%, #FF9800 100%)',
         padding: '8px 15px',
         display: 'flex',
         justifyContent: 'space-between',
@@ -647,7 +845,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                 borderRadius: '4px',
                 cursor: 'pointer',
                 fontSize: '12px',
-                color: darkMode ? '#e4e4e7' : '#5D4037',
+                color: darkMode ? '#F5F0E8' : '#5D4037',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px'
@@ -657,7 +855,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             </button>
           )}
           <span style={{ fontSize: '20px' }}>🐵🍌</span>
-          <span style={{ fontWeight: 'bold', color: darkMode ? '#e4e4e7' : '#5D4037', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontWeight: 'bold', color: darkMode ? '#F5F0E8' : '#5D4037', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             NotePeel - {selectedNote?.title || 'Untitled'}
             {selectedNote && (
               <button
@@ -668,7 +866,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                   cursor: 'pointer',
                   padding: '2px 4px',
                   fontSize: '12px',
-                  color: darkMode ? '#a1a1aa' : '#5D4037',
+                  color: darkMode ? '#A8A29E' : '#5D4037',
                   borderRadius: '3px',
                   opacity: 0.7,
                 }}
@@ -681,15 +879,13 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             )}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <span style={{ fontSize: '12px', color: darkMode ? '#a1a1aa' : '#5D4037' }}>{userEmail}</span>
-          <button
-            onClick={onLogout}
-            style={{ background: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.3)', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: darkMode ? '#e4e4e7' : '#5D4037' }}
-          >
-            Logout
-          </button>
-        </div>
+        <ProfileMenu
+          userEmail={userEmail}
+          onLogout={onLogout}
+          onOpenSettings={onOpenSettings}
+          darkMode={darkMode}
+          showEmail={false}
+        />
       </div>
 
       {/* Menu Bar */}
@@ -697,8 +893,10 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         {/* File Menu */}
         <div style={{ position: 'relative' }}>
           <button
+            onMouseEnter={() => handleTopMenuHover('file')}
+            onMouseLeave={() => setHoveredTopMenu(current => current === 'file' ? null : current)}
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'file' ? null : 'file'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'file' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: theme.text }}
+            style={getTopMenuButtonStyle('file')}
           >
             File
           </button>
@@ -738,8 +936,10 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         {/* Edit Menu */}
         <div style={{ position: 'relative' }}>
           <button
+            onMouseEnter={() => handleTopMenuHover('edit')}
+            onMouseLeave={() => setHoveredTopMenu(current => current === 'edit' ? null : current)}
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'edit' ? null : 'edit'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'edit' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: theme.text }}
+            style={getTopMenuButtonStyle('edit')}
           >
             Edit
           </button>
@@ -762,41 +962,13 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
-        {/* Insert Menu */}
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'insert' ? null : 'insert'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'insert' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: theme.text }}
-          >
-            Insert
-          </button>
-          {activeMenu === 'insert' && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { insertPageBreak(); setActiveMenu(null); }}>
-                <span>📃 Page Break</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Enter</span>
-              </div>
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertHorizontalRule'); setActiveMenu(null); }}>
-                <span>➖ Horizontal Line</span>
-              </div>
-              <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertUnorderedList'); setActiveMenu(null); }}>
-                <span>• Bullet List</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+L</span>
-              </div>
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertOrderedList'); setActiveMenu(null); }}>
-                <span>1. Numbered List</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+N</span>
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* View Menu */}
         <div style={{ position: 'relative' }}>
           <button
+            onMouseEnter={() => handleTopMenuHover('view')}
+            onMouseLeave={() => setHoveredTopMenu(current => current === 'view' ? null : current)}
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'view' ? null : 'view'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'view' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: theme.text }}
+            style={getTopMenuButtonStyle('view')}
           >
             View
           </button>
@@ -815,28 +987,121 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
-        {/* AI Menu */}
+        {/* Insert Menu */}
         <div style={{ position: 'relative' }}>
           <button
-            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'ai' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#E65100' }}
+            onMouseEnter={() => handleTopMenuHover('insert')}
+            onMouseLeave={() => setHoveredTopMenu(current => current === 'insert' ? null : current)}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              saveSelection();
+            }}
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'insert' ? null : 'insert'); }}
+            style={getTopMenuButtonStyle('insert')}
           >
-            🧠 AI
+            Insert
           </button>
-          {activeMenu === 'ai' && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
-              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
-                <span>🃏 Generate Flashcards</span>
-                {generatingFlashcards && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+          {activeMenu === 'insert' && (
+            <div
+              onMouseDown={(e) => e.preventDefault()}
+              style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}
+            >
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { insertPageBreak(); setActiveMenu(null); }}>
+                <span>📃 Page Break</span>
+                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Enter</span>
               </div>
-              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
-                <span>📋 Summarize Note</span>
-                {generatingSummary && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertHorizontalRule'); setActiveMenu(null); }}>
+                <span>➖ Horizontal Line</span>
+              </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { insertLink(); setActiveMenu(null); }}>
+                <span>🔗 Link</span>
+                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+K</span>
               </div>
               <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
-                <span>💡 Explain Selection</span>
-                {generatingExplanation && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              <div
+                style={{ position: 'relative' }}
+                onMouseEnter={openTablePicker}
+                onMouseLeave={closeTablePickerSoon}
+              >
+                <div
+                  style={{ ...menuItemStyle, color: theme.text, background: showTablePicker ? theme.menuHover : 'transparent' }}
+                >
+                  <span>▦ Table</span>
+                  <span style={{ color: theme.textSecondary, fontSize: '12px' }}>▶</span>
+                </div>
+                {showTablePicker && (
+                  <div
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={openTablePicker}
+                    onMouseLeave={closeTablePickerSoon}
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      left: 'calc(100% - 8px)',
+                      padding: '10px 12px 12px',
+                      background: theme.menuBg,
+                      border: `1px solid ${theme.border}`,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      width: 'max-content',
+                      zIndex: 1001,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${TABLE_PICKER_MAX_COLS}, 18px)`,
+                        gap: '3px',
+                        width: 'fit-content',
+                        marginBottom: '10px',
+                      }}
+                    >
+                      {Array.from({ length: TABLE_PICKER_MAX_ROWS * TABLE_PICKER_MAX_COLS }, (_, index) => {
+                        const row = Math.floor(index / TABLE_PICKER_MAX_COLS) + 1;
+                        const col = (index % TABLE_PICKER_MAX_COLS) + 1;
+                        const isActive = row <= tablePickerSize.rows && col <= tablePickerSize.cols;
+
+                        return (
+                          <button
+                            key={`${row}-${col}`}
+                            type="button"
+                            onMouseEnter={() => setTablePickerSize({ rows: row, cols: col })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              insertTable(row, col);
+                              setShowTablePicker(false);
+                              setActiveMenu(null);
+                            }}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              padding: 0,
+                              borderRadius: '3px',
+                              border: `1px solid ${isActive ? '#F57C00' : theme.border}`,
+                              background: isActive ? (darkMode ? '#F57C00' : '#FFE0B2') : theme.menuBg,
+                              cursor: 'pointer',
+                              transition: 'background 0.12s ease, border-color 0.12s ease',
+                            }}
+                            aria-label={`Insert ${row} rows and ${col} columns`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: '12px', color: theme.textSecondary, minHeight: '18px' }}>
+                      {tablePickerSize.rows && tablePickerSize.cols
+                        ? `${tablePickerSize.rows} rows × ${tablePickerSize.cols} columns`
+                        : 'Hover to choose table size'}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertUnorderedList'); setActiveMenu(null); }}>
+                <span>• Bullet List</span>
+                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+L</span>
+              </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertOrderedList'); setActiveMenu(null); }}>
+                <span>1. Numbered List</span>
+                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+N</span>
               </div>
             </div>
           )}
@@ -845,8 +1110,10 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         {/* Format Menu */}
         <div style={{ position: 'relative' }}>
           <button
+            onMouseEnter={() => handleTopMenuHover('format')}
+            onMouseLeave={() => setHoveredTopMenu(current => current === 'format' ? null : current)}
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'format' ? null : 'format'); }}
-            style={{ padding: '6px 12px', background: activeMenu === 'format' ? theme.menuHover : 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: theme.text }}
+            style={getTopMenuButtonStyle('format')}
           >
             Format
           </button>
@@ -867,10 +1134,30 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('strikeThrough'); setActiveMenu(null); }}>
                 <span><s>S</s> Strikethrough</span>
               </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('superscript'); setActiveMenu(null); }}>
+                <span>X<sup>2</sup> Superscript</span>
+              </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('subscript'); setActiveMenu(null); }}>
+                <span>X<sub>2</sub> Subscript</span>
+              </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { handleHighlight(); setActiveMenu(null); }}>
                 <span style={{ background: highlightColor, padding: '0 4px' }}>H</span>
                 <span> Highlight</span>
                 <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+H</span>
+              </div>
+              <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
+              <div style={{ padding: '4px 12px', fontSize: '11px', color: theme.textSecondary, fontWeight: 'bold', textTransform: 'uppercase' }}>Headings</div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('formatBlock', 'h1'); setActiveMenu(null); }}>
+                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Heading 1</span>
+              </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('formatBlock', 'h2'); setActiveMenu(null); }}>
+                <span style={{ fontSize: '16px', fontWeight: 'bold' }}>Heading 2</span>
+              </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('formatBlock', 'h3'); setActiveMenu(null); }}>
+                <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Heading 3</span>
+              </div>
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('formatBlock', 'p'); setActiveMenu(null); }}>
+                <span>Normal Text</span>
               </div>
               <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('justifyLeft'); setActiveMenu(null); }}>
@@ -896,6 +1183,35 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
+        {/* AI Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onMouseEnter={() => handleTopMenuHover('ai')}
+            onMouseLeave={() => setHoveredTopMenu(current => current === 'ai' ? null : current)}
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
+            style={getTopMenuButtonStyle('ai', { color: '#E65100', fontWeight: 'bold' })}
+          >
+            🧠 AI
+          </button>
+          {activeMenu === 'ai' && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
+              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
+                <span>🃏 Generate Flashcards</span>
+                {generatingFlashcards && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              </div>
+              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
+                <span>📋 Summarize Note</span>
+                {generatingSummary && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              </div>
+              <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
+              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
+                <span>💡 Explain Selection</span>
+                {generatingExplanation && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+              </div>
+            </div>
+          )}
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -912,7 +1228,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         <select
           value={noteType}
           onChange={(e) => setNoteType(e.target.value as 'default' | 'lecture' | 'meeting')}
-          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', background: darkMode ? '#3f3f5a' : '#FFF8E1', color: theme.text }}
+          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', background: darkMode ? '#3C3836' : '#FFF8E1', color: theme.text }}
           title="Note type for Gemini AI"
         >
           <option value="default">📝 Default</option>
@@ -964,6 +1280,20 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           <option value="2">2.0</option>
         </select>
 
+        {/* Heading Selector */}
+        <select
+          onChange={(e) => { if (e.target.value) { execCommand('formatBlock', e.target.value); } e.target.value = ''; }}
+          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', minWidth: '110px', background: theme.menuBg, color: theme.text }}
+          title="Heading Level"
+          defaultValue=""
+        >
+          <option value="" disabled>Heading</option>
+          <option value="h1">Heading 1</option>
+          <option value="h2">Heading 2</option>
+          <option value="h3">Heading 3</option>
+          <option value="p">Normal</option>
+        </select>
+
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
         {/* Text Formatting */}
@@ -971,6 +1301,8 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('italic')} title="Italic (Ctrl+I)"><i>I</i></button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('underline')} title="Underline (Ctrl+U)"><u>U</u></button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('strikeThrough')} title="Strikethrough"><s>S</s></button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`, fontSize: '12px'}} onClick={() => execCommand('superscript')} title="Superscript">X<sup style={{fontSize: '9px'}}>2</sup></button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`, fontSize: '12px'}} onClick={() => execCommand('subscript')} title="Subscript">X<sub style={{fontSize: '9px'}}>2</sub></button>
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
@@ -1049,8 +1381,8 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           disabled={!selectedNote}
           style={{
             padding: '6px 16px',
-            background: selectedNote ? 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)' : '#ccc',
-            color: '#5D4037',
+            background: selectedNote ? (notebookColor ?? 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)') : '#ccc',
+            color: selectedNote ? (notebookColor ? '#ffffff' : '#5D4037') : '#888',
             border: 'none',
             borderRadius: '4px',
             cursor: selectedNote ? 'pointer' : 'not-allowed',
@@ -1066,7 +1398,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       {message && (
         <div style={{
           padding: '8px 15px',
-          background: message.includes('Error') ? '#ffebee' : (darkMode ? '#3f3f5a' : '#FFF8E1'),
+          background: message.includes('Error') ? '#ffebee' : (darkMode ? '#3C3836' : '#FFF8E1'),
           color: message.includes('Error') ? '#c62828' : theme.text,
           display: 'flex',
           justifyContent: 'space-between',
@@ -1193,7 +1525,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                     style={{
                       padding: '10px',
                       marginBottom: '6px',
-                      background: selectedNote?.id === note.id ? (darkMode ? '#3f3f5a' : '#FFF8E1') : (darkMode ? '#2d2d4a' : '#f9f9f9'),
+                      background: selectedNote?.id === note.id ? (darkMode ? '#3C3836' : '#FFF8E1') : (darkMode ? '#292524' : '#f9f9f9'),
                       borderRadius: '6px',
                       cursor: 'pointer',
                       border: selectedNote?.id === note.id ? '1px solid #FFB74D' : `1px solid ${theme.border}`,
@@ -1201,8 +1533,23 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ overflow: 'hidden', flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: '500', color: theme.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '500', color: theme.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           {note.title || 'Untitled'}
+                          {note.status === 'failed' && (
+                            <span title="Text extraction failed" style={{
+                              fontSize: '9px',
+                              background: darkMode ? 'rgba(211, 47, 47, 0.2)' : '#FFEBEE',
+                              color: darkMode ? '#ef9a9a' : '#C62828',
+                              padding: '1px 6px',
+                              borderRadius: '8px',
+                              border: `1px solid ${darkMode ? 'rgba(211, 47, 47, 0.3)' : '#FFCDD2'}`,
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
+                            }}>
+                              ⚠ Failed
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: '11px', color: theme.textSecondary, marginTop: '2px' }}>
                           {new Date(note.created_at).toLocaleDateString()}
@@ -1280,7 +1627,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
         {/* Image Panel (toggleable) */}
         {showImage && selectedNote && (
-          <div style={{ width: '350px', background: darkMode ? '#2d2d4a' : '#f5f5f5', borderRight: `1px solid ${theme.border}`, padding: '20px', overflowY: 'auto' }}>
+          <div style={{ width: '350px', background: darkMode ? '#292524' : '#f5f5f5', borderRight: `1px solid ${theme.border}`, padding: '20px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h3 style={{ margin: 0, fontSize: '14px', color: theme.text }}>📷 Original Image</h3>
               <button onClick={() => setShowImage(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: theme.text }}>✕</button>
@@ -1356,7 +1703,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             {/* Quick info display */}
             <div style={{ marginTop: '20px', padding: '12px', background: '#f9f9f9', borderRadius: '8px', fontSize: '12px', color: '#666' }}>
               <div style={{ marginBottom: '4px' }}><strong>Created:</strong> {new Date(selectedNote.created_at).toLocaleString()}</div>
-              <div style={{ marginBottom: '4px' }}><strong>Status:</strong> {selectedNote.status}</div>
+              <div style={{ marginBottom: '4px' }}><strong>Status:</strong> <span style={{ color: selectedNote.status === 'failed' ? '#C62828' : selectedNote.status === 'completed' ? '#2E7D32' : '#F57F17' }}>{selectedNote.status === 'failed' ? '⚠ Failed' : selectedNote.status === 'completed' ? 'Completed' : selectedNote.status}</span></div>
               {selectedNote.image_filename && <div><strong>File:</strong> {selectedNote.image_filename}</div>}
             </div>
 
@@ -1377,23 +1724,93 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         )}
 
         {/* Editor Area */}
-        <div style={{ flex: 1, background: darkMode ? '#1a1a2e' : '#e0e0e0', padding: '30px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: darkMode ? '#1C1917' : '#e0e0e0', padding: '30px', overflowY: 'auto' }}>
           <div style={{
             maxWidth: '850px',
             margin: '0 auto',
-            background: darkMode ? '#252542' : 'white',
+            background: darkMode ? '#292524' : 'white',
             boxShadow: darkMode ? '0 2px 10px rgba(0,0,0,0.3)' : '0 2px 10px rgba(0,0,0,0.1)',
             minHeight: '1100px',
             transform: `scale(${zoom / 100})`,
             transformOrigin: 'top center',
           }}>
+            {/* Notebook color header */}
+            {notebookColor && selectedNote && (
+              <>
+                <div style={{
+                  background: notebookColor,
+                  padding: '48px 80px 36px',
+                  borderRadius: '0',
+                }}>
+                  <div style={{
+                    fontSize: '11px',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase',
+                    color: getNotebookContrastColor(notebookColor),
+                    opacity: 0.6,
+                    marginBottom: '12px',
+                    fontWeight: 500,
+                  }}>
+                    Note
+                  </div>
+                  <h1 style={{
+                    margin: 0,
+                    fontSize: '34px',
+                    fontWeight: 700,
+                    color: getNotebookContrastColor(notebookColor),
+                    lineHeight: 1.2,
+                    letterSpacing: '-0.5px',
+                  }}>
+                    {selectedNote.title || 'Untitled'}
+                  </h1>
+                </div>
+                <div style={{
+                  height: '48px',
+                  background: `linear-gradient(to bottom, ${notebookColor}, ${darkMode ? '#292524' : 'white'})`,
+                }} />
+              </>
+            )}
+
+            {/* Failed note banner */}
+            {selectedNote?.status === 'failed' && !dismissedFailedBanner && !selectedNote?.structured_text && !selectedNote?.raw_text && (
+              <div style={{
+                margin: '20px 40px 0',
+                padding: '16px 20px',
+                background: darkMode ? 'rgba(211, 47, 47, 0.12)' : '#FFF3F0',
+                border: `1px solid ${darkMode ? 'rgba(211, 47, 47, 0.3)' : '#FFCDD2'}`,
+                borderRadius: '10px',
+                display: 'flex',
+                gap: '14px',
+                alignItems: 'flex-start',
+              }}>
+                <span style={{ fontSize: '24px', lineHeight: '1' }}>⚠️</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: darkMode ? '#ef9a9a' : '#C62828', marginBottom: '4px' }}>
+                    Text extraction failed
+                  </div>
+                  <div style={{ fontSize: '13px', color: darkMode ? '#bbb' : '#555', lineHeight: '1.5' }}>
+                    {selectedNote.error_message || 'We couldn\'t extract text from this image.'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: darkMode ? '#999' : '#888', marginTop: '6px' }}>
+                    Tip: Try uploading a clearer photo of handwritten notes. You can also type your notes directly below.
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDismissedFailedBanner(true)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: darkMode ? '#999' : '#aaa', lineHeight: 1, padding: '0' }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {/* Paper - auto-expanding */}
             <div
               ref={editorRef}
               contentEditable
-              style={{
-                padding: '60px 80px',
-                minHeight: '1000px',
+            style={{
+              padding: `${notebookColor && selectedNote ? '20px' : '60px'} 80px 60px`,
+              minHeight: '1000px',
                 fontSize: '16px',
                 fontFamily: fontFamily,
                 lineHeight: lineSpacing,
@@ -1402,11 +1819,14 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                 overflowWrap: 'break-word',
                 whiteSpace: 'normal',
                 color: theme.text,
-              }}
-              onKeyDown={handleKeyDown}
-              onInput={updateCounts}
-              suppressContentEditableWarning
-            />
+            }}
+            onKeyDown={handleKeyDown}
+            onKeyUp={saveSelection}
+            onMouseUp={saveSelection}
+            onFocus={saveSelection}
+            onInput={updateCounts}
+            suppressContentEditableWarning
+          />
           </div>
         </div>
       </div>
@@ -1420,7 +1840,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
                   onClick={() => { setShowFlashcards(false); handleGenerateFlashcards(true); }} 
-                  style={{ background: darkMode ? '#3f3f5a' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}
+                  style={{ background: darkMode ? '#3C3836' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}
                   title="Generate new flashcards"
                 >
                   🔄 Regenerate

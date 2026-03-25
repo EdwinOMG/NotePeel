@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ProfileMenu from '../components/ProfileMenu';
 
 interface SettingsPageProps {
   userEmail: string;
@@ -19,12 +20,12 @@ export default function SettingsPage({
 
   // Theme colors
   const theme = {
-    bg: darkMode ? '#1a1a2e' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
-    cardBg: darkMode ? '#252542' : '#ffffff',
-    headerBg: darkMode ? '#2d2d4a' : 'linear-gradient(135deg, #FFC107 0%, #FFB300 100%)',
-    text: darkMode ? '#e4e4e7' : '#1a1a2e',
-    textSecondary: darkMode ? '#a1a1aa' : '#6b7280',
-    border: darkMode ? '#3f3f5a' : '#e5e7eb',
+    bg: darkMode ? '#1C1917' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
+    cardBg: darkMode ? '#292524' : '#ffffff',
+    headerBg: darkMode ? 'linear-gradient(135deg, #6C4B14 0%, #5A400F 100%)' : 'linear-gradient(135deg, #FFC107 0%, #FFB300 100%)',
+    text: darkMode ? '#F5F0E8' : '#1a1a2e',
+    textSecondary: darkMode ? '#A8A29E' : '#6b7280',
+    border: darkMode ? '#44403C' : '#e5e7eb',
     accent: '#FFC107',
     accentHover: '#FFB300',
   };
@@ -52,7 +53,7 @@ export default function SettingsPage({
       {/* Header */}
       <header style={{
         background: theme.headerBg,
-        borderBottom: darkMode ? `1px solid ${theme.border}` : '1px solid #F9A825',
+        borderBottom: darkMode ? '1px solid rgba(0,0,0,0.25)' : '1px solid #F9A825',
         position: 'sticky',
         top: 0,
         zIndex: 100,
@@ -75,7 +76,7 @@ export default function SettingsPage({
                 border: 'none',
                 borderRadius: '8px',
                 cursor: 'pointer',
-                color: darkMode ? '#e4e4e7' : '#5D4037',
+                color: darkMode ? '#F5F0E8' : '#5D4037',
                 fontSize: '14px',
                 fontWeight: 500,
                 display: 'flex',
@@ -91,7 +92,7 @@ export default function SettingsPage({
               margin: 0,
               fontSize: '24px',
               fontWeight: 700,
-              color: darkMode ? '#e4e4e7' : '#5D4037',
+              color: darkMode ? '#F5F0E8' : '#5D4037',
               fontFamily: "'Playfair Display', Georgia, serif",
               letterSpacing: '-0.02em'
             }}>
@@ -99,22 +100,11 @@ export default function SettingsPage({
             </h1>
           </div>
 
-          <button
-            onClick={onLogout}
-            style={{
-              padding: '10px 18px',
-              background: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.9)',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              color: darkMode ? '#e4e4e7' : '#5D4037',
-              fontSize: '14px',
-              fontWeight: 600,
-              transition: 'all 0.2s ease'
-            }}
-          >
-            Sign out
-          </button>
+          <ProfileMenu
+            userEmail={userEmail}
+            onLogout={onLogout}
+            darkMode={darkMode}
+          />
         </div>
       </header>
 

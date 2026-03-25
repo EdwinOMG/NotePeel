@@ -11,7 +11,7 @@ type Page =
   | { type: 'register' }
   | { type: 'notebooks' }
   | { type: 'notebook'; notebookId: number }
-  | { type: 'editor'; noteId: number; notebookId?: number }
+  | { type: 'editor'; noteId: number; notebookId?: number; notebookColor?: string }
   | { type: 'settings' };
 
 function App() {
@@ -94,9 +94,12 @@ function App() {
       return (
         <NotebookView
           notebookId={currentPage.notebookId}
+          userEmail={userEmail}
           onBack={() => setCurrentPage({ type: 'notebooks' })}
-          onOpenNote={(noteId, notebookId) => setCurrentPage({ type: 'editor', noteId, notebookId })}
+          onOpenNote={(noteId, notebookId, notebookColor) => setCurrentPage({ type: 'editor', noteId, notebookId, notebookColor })}
           onCreateNote={(notebookId) => setCurrentPage({ type: 'editor', noteId: 0, notebookId })}
+          onOpenSettings={() => setCurrentPage({ type: 'settings' })}
+          onLogout={handleLogout}
           darkMode={darkMode}
         />
       );
@@ -106,8 +109,10 @@ function App() {
         <Dashboard
           userEmail={userEmail}
           onLogout={handleLogout}
+          onOpenSettings={() => setCurrentPage({ type: 'settings' })}
           initialNoteId={currentPage.noteId > 0 ? currentPage.noteId : undefined}
           notebookId={currentPage.notebookId}
+          notebookColor={currentPage.notebookColor}
           onBack={() => {
             if (currentPage.notebookId) {
               setCurrentPage({ type: 'notebook', notebookId: currentPage.notebookId });

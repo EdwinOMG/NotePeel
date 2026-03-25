@@ -7,11 +7,11 @@ class Settings(BaseSettings):
     
 
     #cloudflare r2 settings
-    r2_endpoint: str
-    r2_access_key_id: str
-    r2_secret_access_key: str
-    r2_bucket_name: str
-    r2_account_id: str
+    r2_endpoint: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
+    r2_account_id: str = ""
 
 
 
