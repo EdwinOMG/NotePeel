@@ -74,6 +74,9 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showPeelingModal, setShowPeelingModal] = useState(false);
+  const [isReprocessing, setIsReprocessing] = useState(false);
+  const [reprocessResult, setReprocessResult] = useState<{ raw_text: string; structured_text: string; pass: number | null } | null>(null);
+  const [originalContent, setOriginalContent] = useState<{ raw_text: string; structured_text: string } | null>(null);
   const [tablePickerSize, setTablePickerSize] = useState({ rows: 0, cols: 0 });
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [hoveredTopMenu, setHoveredTopMenu] = useState<string | null>(null);
@@ -617,6 +620,56 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
       console.error('Failed to save note metadata:', err);
       setMessage('Failed to save note info');
     }
+  };
+
+  const handleReprocess = async () => {
+    if (!selectedNote || isReprocessing) return;
+    setIsReprocessing(true);
+    setReprocessResult(null);
+    setOriginalContent(null);
+    setMessage('Re-extracting text from image...');
+    try {
+      const result = await notesAPI.reprocess(selectedNote.id);
+      setOriginalContent({
+        raw_text: selectedNote.raw_text || '',
+        structured_text: selectedNote.structured_text || '',
+      });
+      setReprocessResult(result);
+      setMessage('');
+    } catch (err) {
+      setMessage('Reprocess failed — original content is unchanged.');
+      setTimeout(() => setMessage(''), 4000);
+    } finally {
+      setIsReprocessing(false);
+    }
+  };
+
+  const handleAcceptReprocess = async () => {
+    if (!selectedNote || !reprocessResult) return;
+    try {
+      await notesAPI.update(selectedNote.id, {
+        structured_text: reprocessResult.structured_text,
+      });
+      const updated = { ...selectedNote, raw_text: reprocessResult.raw_text, structured_text: reprocessResult.structured_text };
+      setSelectedNote(updated);
+      if (editorRef.current) {
+        editorRef.current.innerHTML = prepareContentForDisplay(reprocessResult.structured_text || reprocessResult.raw_text.replace(/\n/g, '<br>'), darkMode);
+      }
+      setReprocessResult(null);
+      setOriginalContent(null);
+      setMessage('Updated to new extraction.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch {
+      setMessage('Failed to save new extraction.');
+      setTimeout(() => setMessage(''), 3000);
+    }
+  };
+
+  const handleRevertReprocess = () => {
+    setReprocessResult(null);
+    setOriginalContent(null);
+    setMessage('Kept original extraction.');
+    setTimeout(() => setMessage(''), 2000);
   };
 
   // AI Feature handlers
@@ -1701,11 +1754,35 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
             </button>
 
             {/* Quick info display */}
-            <div style={{ marginTop: '20px', padding: '12px', background: '#f9f9f9', borderRadius: '8px', fontSize: '12px', color: '#666' }}>
+            <div style={{ marginTop: '20px', padding: '12px', background: darkMode ? '#1C1917' : '#f9f9f9', borderRadius: '8px', fontSize: '12px', color: darkMode ? '#A8A29E' : '#666' }}>
               <div style={{ marginBottom: '4px' }}><strong>Created:</strong> {new Date(selectedNote.created_at).toLocaleString()}</div>
               <div style={{ marginBottom: '4px' }}><strong>Status:</strong> <span style={{ color: selectedNote.status === 'failed' ? '#C62828' : selectedNote.status === 'completed' ? '#2E7D32' : '#F57F17' }}>{selectedNote.status === 'failed' ? '⚠ Failed' : selectedNote.status === 'completed' ? 'Completed' : selectedNote.status}</span></div>
               {selectedNote.image_filename && <div><strong>File:</strong> {selectedNote.image_filename}</div>}
             </div>
+
+            {/* Reprocess button */}
+            {selectedNote.image_filename && (
+              <button
+                onClick={handleReprocess}
+                disabled={isReprocessing}
+                style={{
+                  width: '100%',
+                  marginTop: '12px',
+                  padding: '8px',
+                  background: isReprocessing ? (darkMode ? '#3C3836' : '#eee') : 'transparent',
+                  color: darkMode ? '#A8A29E' : '#666',
+                  border: `1px solid ${darkMode ? '#44403C' : '#ddd'}`,
+                  borderRadius: '6px',
+                  cursor: isReprocessing ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(e) => { if (!isReprocessing) e.currentTarget.style.borderColor = '#FF9800'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = darkMode ? '#44403C' : '#ddd'; }}
+              >
+                {isReprocessing ? '⏳ Re-extracting...' : '🔄 Reprocess Image'}
+              </button>
+            )}
 
             {/* Tag chips preview */}
             {editTags && (
@@ -1769,6 +1846,47 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
                   background: `linear-gradient(to bottom, ${notebookColor}, ${darkMode ? '#292524' : 'white'})`,
                 }} />
               </>
+            )}
+
+            {/* Reprocess comparison banner */}
+            {reprocessResult && originalContent && (
+              <div style={{
+                margin: '20px 40px 0',
+                padding: '16px 20px',
+                background: darkMode ? 'rgba(255,152,0,0.1)' : '#FFF8E1',
+                border: `1px solid ${darkMode ? 'rgba(255,152,0,0.35)' : '#FFE082'}`,
+                borderRadius: '10px',
+              }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: darkMode ? '#FF9800' : '#E65100', marginBottom: '10px' }}>
+                  🔄 New extraction ready — which version do you want to keep?
+                </div>
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '14px', fontSize: '13px', color: darkMode ? '#A8A29E' : '#666' }}>
+                  <div>
+                    <strong>Original:</strong>{' '}
+                    {(originalContent.raw_text || '').trim().split(/\s+/).filter(Boolean).length} words
+                  </div>
+                  <div style={{ color: darkMode ? '#44403C' : '#ccc' }}>|</div>
+                  <div>
+                    <strong>New extraction:</strong>{' '}
+                    {(reprocessResult.raw_text || '').trim().split(/\s+/).filter(Boolean).length} words
+                    {reprocessResult.pass && <span style={{ marginLeft: '6px', fontSize: '11px', opacity: 0.7 }}>(pass {reprocessResult.pass})</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={handleAcceptReprocess}
+                    style={{ padding: '7px 16px', background: '#FF9800', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+                  >
+                    Use new version
+                  </button>
+                  <button
+                    onClick={handleRevertReprocess}
+                    style={{ padding: '7px 16px', background: 'transparent', color: darkMode ? '#A8A29E' : '#666', border: `1px solid ${darkMode ? '#44403C' : '#ddd'}`, borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+                  >
+                    Keep original
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Failed note banner */}

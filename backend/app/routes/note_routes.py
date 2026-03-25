@@ -141,3 +141,14 @@ def delete_note(
     """Delete a note."""
     note_controller.delete_note(db, note_id, current_user)
     return {"message": "Note deleted"}
+
+
+@router.post("/{note_id}/reprocess")
+def reprocess_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Re-run OCR on the stored image and return the result without saving.
+    The client decides whether to apply or discard it."""
+    return note_controller.reprocess_note(db, note_id, current_user)

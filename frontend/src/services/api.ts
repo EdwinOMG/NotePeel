@@ -136,6 +136,9 @@ export const notesAPI = {
   delete: (id: number): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'DELETE' }),
 
+  reprocess: (id: number): Promise<{ raw_text: string; structured_text: string; pass: number | null }> =>
+    fetchWithAuth(`/api/notes/${id}/reprocess`, { method: 'POST' }),
+
   // AI Features
   generateFlashcards: (noteId: number, regenerate: boolean = false): Promise<FlashcardSet & { cached?: boolean }> =>
     fetchWithAuth(`/api/ai/flashcards/${noteId}?regenerate=${regenerate}`, { method: 'POST' }),

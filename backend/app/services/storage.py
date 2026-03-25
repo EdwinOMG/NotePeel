@@ -61,3 +61,12 @@ def get_fresh_url(key: str) -> str:
         Params={"Bucket": settings.r2_bucket_name, "Key": key},
         ExpiresIn=604800
     )
+
+
+def download_image(key: str) -> bytes:
+    """Download image bytes from R2 by key."""
+    response = _get_s3_client().get_object(
+        Bucket=settings.r2_bucket_name,
+        Key=key,
+    )
+    return response["Body"].read()

@@ -9,7 +9,7 @@ import re
 from app.models.note import Note, ProcessingStatus
 from app.models.user import User
 from app.schemas.note_schema import NoteUpdate
-from app.services.storage import upload_image, delete_image, get_fresh_url
+from app.services.storage import upload_image, delete_image, get_fresh_url, download_image
 
 import sys
 sys.path.insert(0, '..')
@@ -247,6 +247,45 @@ class NoteController:
 
         db.delete(note)
         db.commit()
+
+    @staticmethod
+    def reprocess_note(db: Session, note_id: int, user: User) -> dict:
+        """Re-run OCR on the stored image and return the new result without saving.
+        The caller decides whether to apply or discard it."""
+        note = NoteController.get_note(db, note_id, user)
+
+        if not note.image_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No image stored for this note — cannot reprocess."
+            )
+
+        image_bytes = download_image(note.image_key)
+        ocr_result = extract_structured_text(image_bytes)
+
+        if ocr_result.get('error') and not ocr_result.get('raw_text'):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Reprocessing failed: {ocr_result['error']}"
+            )
+
+        elements = ocr_result.get('elements', [])
+        sorted_elements = sorted(
+            elements,
+            key=lambda e: (
+                e.get('position', {}).get('y_percent', 0),
+                e.get('position', {}).get('x_percent', 0)
+            )
+        )
+        cleaned_elements = NoteController._clean_elements(sorted_elements)
+        raw_text = ocr_result.get('raw_text', '')
+        structured_html = NoteController._select_structured_html(cleaned_elements, raw_text)
+
+        return {
+            "raw_text": raw_text,
+            "structured_text": structured_html,
+            "pass": ocr_result.get('metadata', {}).get('pass'),
+        }
 
     @staticmethod
     def _clean_elements(elements: list) -> list:
