@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { notesAPI } from '../services/api';
 import type { Note, NoteWithImage, Categories } from '../types';
-import { getUploadFeedback, prepareContentForDisplay } from '../utils/noteExtraction';
+import { getUploadFeedback, isExtractionLikelyIncomplete, prepareContentForDisplay } from '../utils/noteExtraction';
 import ProfileMenu from '../components/ProfileMenu';
 
 const getNotebookContrastColor = (hex: string) => {
@@ -101,6 +101,23 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
     statusBar: darkMode ? '#292524' : '#f0f0f0',
     inputBg: darkMode ? '#1C1917' : '#ffffff',
   };
+
+  const selectedNoteHasAnyText = Boolean(
+    (selectedNote?.structured_text || '').trim() || (selectedNote?.raw_text || '').trim()
+  );
+  const selectedNoteLooksIncomplete = selectedNote ? isExtractionLikelyIncomplete(selectedNote) : false;
+  const shouldHighlightReprocess = Boolean(
+    selectedNote?.image_filename &&
+    !reprocessResult &&
+    (selectedNote?.status === 'failed' || selectedNoteLooksIncomplete)
+  );
+  const reprocessPromptText = selectedNote?.status === 'failed'
+    ? (selectedNoteHasAnyText
+        ? 'This note recovered some text, but the OCR result may still be unreliable.'
+        : 'This extraction failed. Try reprocessing the original image before giving up on it.')
+    : selectedNoteLooksIncomplete
+      ? 'This extraction looks a little thin. Reprocessing the image may give you a better result.'
+      : 'Not happy with the upload result? Reprocess the original image anytime.';
 
   useEffect(() => {
     loadNotes();
@@ -1445,6 +1462,27 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
         >
           💾 Save
         </button>
+
+        {/* Reprocess button — shown only when a note with an image is open */}
+        {selectedNote?.image_filename && !reprocessResult && (
+          <button
+            onClick={handleReprocess}
+            disabled={isReprocessing}
+            title="Re-run OCR on the original image"
+            style={{
+              padding: '6px 12px',
+              background: shouldHighlightReprocess ? '#FF9800' : 'transparent',
+              color: shouldHighlightReprocess ? '#fff' : (isReprocessing ? theme.textSecondary : theme.text),
+              border: `1px solid ${shouldHighlightReprocess ? '#FF9800' : theme.border}`,
+              borderRadius: '4px',
+              cursor: isReprocessing ? 'not-allowed' : 'pointer',
+              fontSize: '13px',
+              opacity: isReprocessing ? 0.6 : 1,
+            }}
+          >
+            {isReprocessing ? '⏳' : '🔄'} Reprocess
+          </button>
+        )}
       </div>
 
       {/* Message Bar */}
@@ -1848,6 +1886,42 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
               </>
             )}
 
+            {/* Slim reprocess strip — only shown when extraction looks bad */}
+            {shouldHighlightReprocess && !reprocessResult && (
+              <div style={{
+                margin: '16px 40px 0',
+                padding: '8px 12px 8px 14px',
+                background: darkMode ? 'rgba(255,152,0,0.08)' : '#FFF8E1',
+                border: `1px solid ${darkMode ? 'rgba(255,152,0,0.25)' : '#FFE082'}`,
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+              }}>
+                <span style={{ fontSize: '12px', color: darkMode ? '#FFB74D' : '#E65100' }}>
+                  ⚠️ {reprocessPromptText}
+                </span>
+                <button
+                  onClick={handleReprocess}
+                  disabled={isReprocessing}
+                  style={{
+                    flexShrink: 0,
+                    padding: '5px 12px',
+                    background: isReprocessing ? 'transparent' : '#FF9800',
+                    color: isReprocessing ? (darkMode ? '#bbb' : '#999') : '#fff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: isReprocessing ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {isReprocessing ? '⏳ Re-extracting…' : 'Reprocess →'}
+                </button>
+              </div>
+            )}
+
             {/* Reprocess comparison banner */}
             {reprocessResult && originalContent && (
               <div style={{
@@ -1912,6 +1986,25 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
                   <div style={{ fontSize: '12px', color: darkMode ? '#999' : '#888', marginTop: '6px' }}>
                     Tip: Try uploading a clearer photo of handwritten notes. You can also type your notes directly below.
                   </div>
+                  {selectedNote.image_filename && (
+                    <button
+                      onClick={handleReprocess}
+                      disabled={isReprocessing}
+                      style={{
+                        marginTop: '12px',
+                        padding: '8px 14px',
+                        background: isReprocessing ? 'transparent' : '#FF9800',
+                        color: isReprocessing ? (darkMode ? '#bbb' : '#777') : '#fff',
+                        border: `1px solid ${isReprocessing ? (darkMode ? '#555' : '#ddd') : '#FF9800'}`,
+                        borderRadius: '8px',
+                        cursor: isReprocessing ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {isReprocessing ? '⏳ Re-extracting...' : '🔄 Reprocess Image'}
+                    </button>
+                  )}
                 </div>
                 <button
                   onClick={() => setDismissedFailedBanner(true)}
@@ -1945,6 +2038,7 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
             onInput={updateCounts}
             suppressContentEditableWarning
           />
+
           </div>
         </div>
       </div>
