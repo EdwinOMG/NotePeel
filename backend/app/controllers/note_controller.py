@@ -105,6 +105,101 @@ class NoteController:
         )
 
     @staticmethod
+    def _element_text(element: dict) -> str:
+        content = clean(element.get('content', ''))
+        if content:
+            return content
+        children = element.get('children', [])
+        return clean(' '.join(clean(child) for child in children if child))
+
+    @staticmethod
+    def _element_word_count(element: dict) -> int:
+        return NoteController._word_count(NoteController._element_text(element))
+
+    @staticmethod
+    def _is_metadata_element(element: dict) -> bool:
+        text = NoteController._element_text(element)
+        if not text:
+            return False
+
+        lowered = text.lower()
+        region = element.get('position', {}).get('region', '')
+        width = element.get('position', {}).get('width_percent', 100)
+        y = element.get('position', {}).get('y_percent', 100)
+        words = NoteController._element_word_count(element)
+
+        metadata_patterns = (
+            r'\bdate\b',
+            r'\bpage\b',
+            r'\bpg\b',
+            r'\bpage\s*\d+\b',
+            r'^\d+\s*(/|of)\s*\d+$',
+            r'^\d+$',
+            r'\b\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?\b',
+        )
+        if any(re.search(pattern, lowered) for pattern in metadata_patterns):
+            return True
+
+        return (
+            'right' in region
+            and y <= 22
+            and width <= 18
+            and words <= 3
+        )
+
+    @staticmethod
+    def _render_linear_band(band: list) -> str:
+        metadata = [el for el in band if NoteController._is_metadata_element(el)]
+        content = [el for el in band if el not in metadata]
+
+        if not metadata:
+            return ''.join(NoteController._element_to_html(el) for el in band)
+
+        metadata_html = ''.join(NoteController._element_to_html(el) for el in metadata)
+        metadata_block = (
+            '<div style="text-align:right;margin:4px 0 10px;opacity:0.92;">'
+            f'{metadata_html}'
+            '</div>'
+        )
+
+        if content and content[0].get('type') == 'header':
+            first = NoteController._element_to_html(content[0])
+            rest = ''.join(NoteController._element_to_html(el) for el in content[1:])
+            return f'{first}{metadata_block}{rest}'
+
+        content_html = ''.join(NoteController._element_to_html(el) for el in content)
+        return f'{metadata_block}{content_html}'
+
+    @staticmethod
+    def _should_render_as_columns(
+        band: list,
+        left_els: list,
+        right_els: list,
+        center_els: list,
+        page_layout: str,
+    ) -> bool:
+        substantive_left = [el for el in left_els if not NoteController._is_metadata_element(el)]
+        substantive_right = [el for el in right_els if not NoteController._is_metadata_element(el)]
+
+        if not substantive_left or not substantive_right:
+            return False
+
+        left_words = sum(NoteController._element_word_count(el) for el in substantive_left)
+        right_words = sum(NoteController._element_word_count(el) for el in substantive_right)
+        y_positions = [el.get('position', {}).get('y_percent', 0) for el in band]
+        y_span = (max(y_positions) - min(y_positions)) if y_positions else 0
+
+        if page_layout == 'single_column':
+            return (
+                left_words >= 6
+                and right_words >= 6
+                and y_span <= 10
+                and len(center_els) <= 1
+            )
+
+        return left_words >= 4 and right_words >= 4 and y_span <= 14
+
+    @staticmethod
     def _sort_elements_by_raw_text(elements: list, raw_text: str) -> list:
         """Re-order elements by where their content appears in raw_text.
         Raw_text is always in correct reading order; y_percent coordinates
@@ -141,7 +236,7 @@ class NoteController:
         if page_layout == 'single_column' and raw_text and elements:
             elements = NoteController._sort_elements_by_raw_text(elements, raw_text)
 
-        structured_html = NoteController._build_html(elements)
+        structured_html = NoteController._build_html(elements, page_layout=page_layout)
 
         if not structured_html:
             return raw_text.replace('\n', '<br>')
@@ -464,7 +559,7 @@ class NoteController:
             return f'<p style="{base_p}">{content}</p>'
 
     @staticmethod
-    def _build_html(sorted_elements: list) -> str:
+    def _build_html(sorted_elements: list, page_layout: str = 'unknown') -> str:
         if not sorted_elements:
             return ''
 
@@ -498,7 +593,7 @@ class NoteController:
 
         for band in bands:
             if len(band) == 1:
-                html_parts.append(NoteController._element_to_html(band[0]))
+                html_parts.append(NoteController._render_linear_band(band))
                 continue
 
             left_els = [e for e in band if 'left' in e.get('position', {}).get('region', '')]
@@ -510,6 +605,10 @@ class NoteController:
                     if 'left' not in e.get('position', {}).get('region', '')
                     and 'right' not in e.get('position', {}).get('region', '')
                 ]
+
+                if not NoteController._should_render_as_columns(band, left_els, right_els, center_els, page_layout):
+                    html_parts.append(NoteController._render_linear_band(band))
+                    continue
 
                 left_html = ''.join(NoteController._element_to_html(e) for e in left_els)
                 right_html = ''.join(NoteController._element_to_html(e) for e in right_els)
@@ -547,8 +646,7 @@ class NoteController:
                         f'</div>'
                     )
             else:
-                for el in sorted(band, key=lambda e: e.get('position', {}).get('x_percent', 0)):
-                    html_parts.append(NoteController._element_to_html(el))
+                html_parts.append(NoteController._render_linear_band(band))
 
         return ''.join(html_parts)
 
