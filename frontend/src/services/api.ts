@@ -1,10 +1,11 @@
-import type { 
-  UserCreate, 
-  UserLogin, 
-  AuthToken, 
-  User, 
-  Note, 
+import type {
+  UserCreate,
+  UserLogin,
+  AuthToken,
+  User,
+  Note,
   NoteWithImage,
+  SharedNote,
   Notebook,
   NotebookWithNotes,
   NotebookCreate,
@@ -138,6 +139,18 @@ export const notesAPI = {
 
   reprocess: (id: number): Promise<{ raw_text: string; structured_text: string; pass: number | null }> =>
     fetchWithAuth(`/api/notes/${id}/reprocess`, { method: 'POST' }),
+
+  share: (id: number): Promise<{ share_token: string }> =>
+    fetchWithAuth(`/api/notes/${id}/share`, { method: 'POST' }),
+
+  unshare: (id: number): Promise<{ message: string }> =>
+    fetchWithAuth(`/api/notes/${id}/share`, { method: 'DELETE' }),
+
+  getShared: (token: string): Promise<SharedNote> =>
+    fetch(`${API_URL}/api/notes/shared/${token}`).then(r => {
+      if (!r.ok) throw new Error('Shared note not found');
+      return r.json();
+    }),
 
   // AI Features
   generateFlashcards: (noteId: number, regenerate: boolean = false): Promise<FlashcardSet & { cached?: boolean }> =>

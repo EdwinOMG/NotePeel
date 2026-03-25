@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 from datetime import datetime
+import uuid
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status, UploadFile
 from PIL import Image
@@ -616,6 +617,41 @@ class NoteController:
         db.commit()
         db.refresh(note)
         return note
+
+
+    @staticmethod
+    def share_note(db: Session, note_id: int, user: User) -> dict:
+        note = NoteController.get_note(db, note_id, user)
+        if not note.share_token:
+            note.share_token = str(uuid.uuid4())
+            db.commit()
+            db.refresh(note)
+        return {"share_token": note.share_token}
+
+    @staticmethod
+    def unshare_note(db: Session, note_id: int, user: User) -> None:
+        note = NoteController.get_note(db, note_id, user)
+        note.share_token = None
+        db.commit()
+
+    @staticmethod
+    def get_shared_note(db: Session, token: str) -> dict:
+        note = db.query(Note).filter(Note.share_token == token).first()
+        if not note:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shared note not found"
+            )
+        return {
+            "title": note.title,
+            "structured_text": note.structured_text,
+            "raw_text": note.raw_text,
+            "subject": note.subject,
+            "topic": note.topic,
+            "tags": note.tags,
+            "created_at": note.created_at,
+            "owner_username": note.owner.username if note.owner else None,
+        }
 
 
 note_controller = NoteController()

@@ -43,6 +43,9 @@ class Note(Base):
     status = Column(Enum(ProcessingStatus), default=ProcessingStatus.PENDING)
     error_message = Column(Text, nullable=True)
 
+    # Sharing
+    share_token = Column(String(36), unique=True, index=True, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)

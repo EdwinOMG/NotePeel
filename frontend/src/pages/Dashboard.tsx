@@ -85,6 +85,9 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
   const [originalContent, setOriginalContent] = useState<{ raw_text: string; structured_text: string } | null>(null);
   const [tablePickerSize, setTablePickerSize] = useState({ rows: 0, cols: 0 });
   const [showTablePicker, setShowTablePicker] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const [hoveredTopMenu, setHoveredTopMenu] = useState<string | null>(null);
   
   const editorRef = useRef<HTMLDivElement>(null);
@@ -805,6 +808,41 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
     setFlashcardIndex(0);
     setFlashcardFlipped(false);
     setShowStudyResults(false);
+  };
+
+  const handleShare = async () => {
+    if (!selectedNote) return;
+    try {
+      const result = await notesAPI.share(selectedNote.id);
+      setShareToken(result.share_token);
+      setShareCopied(false);
+      setShowShareModal(true);
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to create share link'));
+    }
+  };
+
+  const handleUnshare = async () => {
+    if (!selectedNote) return;
+    try {
+      await notesAPI.unshare(selectedNote.id);
+      setShareToken(null);
+      setShowShareModal(false);
+      setMessage('Share link revoked');
+      setTimeout(() => setMessage(''), 2000);
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to revoke share link'));
+    }
+  };
+
+  const getShareUrl = () => {
+    return `${window.location.origin}/shared/${shareToken}`;
+  };
+
+  const copyShareLink = () => {
+    navigator.clipboard.writeText(getShareUrl());
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
   };
 
   const handleSummarize = async (regenerate: boolean = false) => {
@@ -1577,6 +1615,25 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
             {isReprocessing ? '⏳' : '🔄'} Reprocess
           </button>
         )}
+
+        {/* Share button */}
+        {selectedNote && (
+          <button
+            onClick={handleShare}
+            title="Share this note via link"
+            style={{
+              padding: '6px 12px',
+              background: 'transparent',
+              color: theme.text,
+              border: `1px solid ${theme.border}`,
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '13px',
+            }}
+          >
+            🔗 Share
+          </button>
+        )}
       </div>
 
       {/* Message Bar */}
@@ -2332,6 +2389,76 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
         </div>
         );
       })()}
+
+      {/* ── Share Modal ── */}
+      {showShareModal && shareToken && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowShareModal(false)}>
+          <div style={{ background: theme.cardBg, borderRadius: '16px', padding: '30px', maxWidth: '500px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, color: theme.text, fontSize: '18px' }}>🔗 Share Note</h2>
+              <button onClick={() => setShowShareModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
+            </div>
+
+            <p style={{ color: theme.textSecondary, fontSize: '14px', margin: '0 0 16px' }}>
+              Anyone with this link can view a read-only version of this note.
+            </p>
+
+            {/* Share URL input + copy */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+              <input
+                type="text"
+                readOnly
+                value={getShareUrl()}
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: '8px',
+                  background: darkMode ? '#1C1917' : '#f9f9f9',
+                  color: theme.text,
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                }}
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+              />
+              <button
+                onClick={copyShareLink}
+                style={{
+                  padding: '10px 16px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: shareCopied ? '#4CAF50' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                  color: shareCopied ? '#fff' : '#5D4037',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  whiteSpace: 'nowrap',
+                  transition: 'background 0.2s',
+                }}
+              >
+                {shareCopied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+
+            {/* Revoke button */}
+            <button
+              onClick={handleUnshare}
+              style={{
+                width: '100%',
+                padding: '10px',
+                border: `1px solid ${darkMode ? '#5D3A3A' : '#ffcdd2'}`,
+                borderRadius: '8px',
+                background: darkMode ? '#3A1B1B' : '#fff5f5',
+                color: '#EF5350',
+                cursor: 'pointer',
+                fontSize: '13px',
+              }}
+            >
+              Revoke Share Link
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Summary Modal ── */}
       {showSummary && (

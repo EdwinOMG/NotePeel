@@ -5,16 +5,23 @@ import NotebooksPage from './pages/NotebooksPage';
 import NotebookView from './pages/NotebookView';
 import Dashboard from './pages/Dashboard';
 import SettingsPage from './pages/SettingsPage';
+import SharedNotePage from './pages/SharedNotePage';
 
-type Page = 
+type Page =
   | { type: 'login' }
   | { type: 'register' }
   | { type: 'notebooks' }
   | { type: 'notebook'; notebookId: number }
   | { type: 'editor'; noteId: number; notebookId?: number; notebookColor?: string }
-  | { type: 'settings' };
+  | { type: 'settings' }
+  | { type: 'shared'; token: string };
 
 function App() {
+  // Handle /shared/{token} URL before anything else
+  const sharedMatch = window.location.pathname.match(/^\/shared\/([a-f0-9-]+)$/i);
+  if (sharedMatch) {
+    return <SharedNotePage token={sharedMatch[1]} />;
+  }
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [currentPage, setCurrentPage] = useState<Page>({ type: 'login' });

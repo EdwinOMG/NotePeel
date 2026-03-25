@@ -83,6 +83,15 @@ def search_notes(
     ]
 
 
+@router.get("/shared/{token}")
+def get_shared_note(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint: view a shared note (no auth required)."""
+    return note_controller.get_shared_note(db, token)
+
+
 @router.get("/categories")
 def get_categories(
     db: Session = Depends(get_db),
@@ -141,6 +150,27 @@ def delete_note(
     """Delete a note."""
     note_controller.delete_note(db, note_id, current_user)
     return {"message": "Note deleted"}
+
+
+@router.post("/{note_id}/share")
+def share_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate a share link for a note."""
+    return note_controller.share_note(db, note_id, current_user)
+
+
+@router.delete("/{note_id}/share")
+def unshare_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Revoke the share link for a note."""
+    note_controller.unshare_note(db, note_id, current_user)
+    return {"message": "Share link revoked"}
 
 
 @router.post("/{note_id}/reprocess")
