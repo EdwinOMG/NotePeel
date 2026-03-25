@@ -38,7 +38,7 @@ Each element must have:
 - "position": object with:
     - "region": rough location e.g. "top-left", "top-right", "top-center", "middle-left", "middle-right", "middle-center", "bottom-left", "bottom-right", "bottom-center"
     - "x_percent": left edge as % of page width (0-100)
-    - "y_percent": top edge as % of page height (0-100)
+    - "y_percent": top edge as % of page height (0-100). CRITICAL: y_percent = 0 is the very TOP of the page. y_percent = 100 is the very BOTTOM. An element that appears higher on the page MUST have a lower y_percent than one below it. This value is used to determine reading order — get it wrong and the entire note will be scrambled.
     - "width_percent": width as % of page width (0-100)
     - "height_percent": height as % of page height (0-100)
 - "style": object with:

@@ -122,6 +122,20 @@ class NoteController:
         if raw_words >= 20 and structured_words < max(12, int(raw_words * 0.6)):
             return raw_text.replace('\n', '<br>')
 
+        # Ordering sanity check: the first distinctive word in raw_text should appear
+        # in the first half of the structured HTML. If it appears near the end, the
+        # AI assigned wrong y_percent coordinates and the note is scrambled.
+        if raw_words >= 15 and structured_words >= 15:
+            structured_text = NoteController._html_to_text(structured_html).lower()
+            anchor = next(
+                (w.lower() for w in raw_text.split()[:10] if len(w) > 4),
+                None
+            )
+            if anchor and anchor in structured_text:
+                relative_pos = structured_text.index(anchor) / len(structured_text)
+                if relative_pos > 0.5:
+                    return raw_text.replace('\n', '<br>')
+
         return structured_html
 
     @staticmethod
