@@ -105,7 +105,7 @@ class NoteController:
         )
 
     @staticmethod
-    def _select_structured_html(elements: list, raw_text: str) -> str:
+    def _select_structured_html(elements: list, raw_text: str, page_layout: str = 'unknown') -> str:
         structured_html = NoteController._build_html(elements)
         raw_text = (raw_text or '').strip()
 
@@ -122,19 +122,35 @@ class NoteController:
         if raw_words >= 20 and structured_words < max(12, int(raw_words * 0.6)):
             return raw_text.replace('\n', '<br>')
 
-        # Ordering sanity check: the first distinctive word in raw_text should appear
-        # in the first half of the structured HTML. If it appears near the end, the
-        # AI assigned wrong y_percent coordinates and the note is scrambled.
         if raw_words >= 15 and structured_words >= 15:
             structured_text = NoteController._html_to_text(structured_html).lower()
+            is_single_col = page_layout == 'single_column'
+
+            # Check 1: first distinctive word from raw_text should appear early in
+            # structured HTML. Single-column gets a stricter threshold (40% vs 50%)
+            # because there is no legitimate reason for the title to appear mid-page.
             anchor = next(
                 (w.lower() for w in raw_text.split()[:10] if len(w) > 4),
                 None
             )
             if anchor and anchor in structured_text:
-                relative_pos = structured_text.index(anchor) / len(structured_text)
-                if relative_pos > 0.5:
+                threshold = 0.4 if is_single_col else 0.5
+                if structured_text.index(anchor) / len(structured_text) > threshold:
                     return raw_text.replace('\n', '<br>')
+
+            # Check 2 (single-column only): the first non-empty line of raw_text is
+            # almost certainly the note title. If it doesn't appear in the first 35%
+            # of structured HTML the sections are scrambled — bail to raw_text.
+            if is_single_col:
+                first_raw_line = next(
+                    (l.strip().lower() for l in raw_text.split('\n') if l.strip()),
+                    None
+                )
+                if first_raw_line and len(first_raw_line) > 4:
+                    phrase = ' '.join(first_raw_line.split()[:4])
+                    if phrase in structured_text:
+                        if structured_text.index(phrase) / len(structured_text) > 0.35:
+                            return raw_text.replace('\n', '<br>')
 
         return structured_html
 
@@ -197,7 +213,8 @@ class NoteController:
 
             cleaned_elements = NoteController._clean_elements(sorted_elements)
             raw_text = ocr_result.get('raw_text', '')
-            structured_html = NoteController._select_structured_html(cleaned_elements, raw_text)
+            page_layout = ocr_result.get('page_layout', 'unknown')
+            structured_html = NoteController._select_structured_html(cleaned_elements, raw_text, page_layout)
 
             note.raw_text = raw_text
             note.structured_text = structured_html
@@ -293,7 +310,8 @@ class NoteController:
         )
         cleaned_elements = NoteController._clean_elements(sorted_elements)
         raw_text = ocr_result.get('raw_text', '')
-        structured_html = NoteController._select_structured_html(cleaned_elements, raw_text)
+        page_layout = ocr_result.get('page_layout', 'unknown')
+        structured_html = NoteController._select_structured_html(cleaned_elements, raw_text, page_layout)
 
         return {
             "raw_text": raw_text,
