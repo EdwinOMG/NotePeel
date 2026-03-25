@@ -262,6 +262,104 @@ class NoteController:
         return note
 
     @staticmethod
+    async def create_multi_page_note(
+        db: Session,
+        files: List[UploadFile],
+        user: User,
+        title: Optional[str] = None,
+        note_type: str = "default"
+    ) -> Note:
+        """Create a single note from multiple page images."""
+        if not files:
+            raise HTTPException(status_code=400, detail="No files provided")
+
+        # Read all files upfront
+        file_data = []
+        for f in files:
+            content = await f.read()
+            file_data.append((f.filename or f"page_{len(file_data)+1}.jpg", content))
+
+        # Store first image as the note's thumbnail
+        first_compressed, first_mimetype = compress_image(file_data[0][1])
+        storage_result = upload_image(
+            file_bytes=first_compressed,
+            filename=file_data[0][0],
+            mimetype=first_mimetype
+        )
+
+        note = Note(
+            title=title or f"{file_data[0][0]} (+{len(file_data)-1} pages)" if len(file_data) > 1 else title or file_data[0][0],
+            image_key=storage_result["key"],
+            image_url=storage_result["url"],
+            image_filename=file_data[0][0],
+            image_mimetype=first_mimetype,
+            status=ProcessingStatus.PROCESSING,
+            owner_id=user.id
+        )
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+
+        all_raw_texts = []
+        all_html_parts = []
+        failed_pages = []
+
+        for i, (filename, content) in enumerate(file_data):
+            page_num = i + 1
+            try:
+                ocr_result = extract_structured_text(content, note_type=note_type)
+                if ocr_result.get('error'):
+                    raise Exception(ocr_result['error'])
+
+                elements = ocr_result.get('elements', [])
+                sorted_elements = sorted(
+                    elements,
+                    key=lambda e: (
+                        e.get('position', {}).get('y_percent', 0),
+                        e.get('position', {}).get('x_percent', 0)
+                    )
+                )
+                cleaned_elements = NoteController._clean_elements(sorted_elements)
+                raw_text = ocr_result.get('raw_text', '')
+                page_layout = ocr_result.get('page_layout', 'unknown')
+                structured_html = NoteController._select_structured_html(cleaned_elements, raw_text, page_layout)
+
+                all_raw_texts.append(raw_text)
+                all_html_parts.append(structured_html)
+            except Exception as e:
+                failed_pages.append(page_num)
+                all_raw_texts.append(f"[Page {page_num} failed: {e}]")
+                all_html_parts.append(f'<p style="color:#EF5350;font-style:italic;">[Page {page_num} extraction failed]</p>')
+
+        # Build page dividers
+        page_divider_html = '<hr style="border:none;border-top:2px dashed #FFB74D;margin:24px 0;">'
+
+        try:
+            note.raw_text = "\n\n".join(all_raw_texts)
+            note.structured_text = page_divider_html.join(all_html_parts)
+            note.status = ProcessingStatus.COMPLETED if len(failed_pages) < len(file_data) else ProcessingStatus.FAILED
+            note.error_message = f"Pages {', '.join(map(str, failed_pages))} failed" if failed_pages else None
+            note.processed_at = datetime.utcnow()
+            db.commit()
+            db.refresh(note)
+        except Exception as e:
+            note.status = ProcessingStatus.FAILED
+            note.error_message = str(e)
+            db.commit()
+            db.refresh(note)
+            return note
+
+        try:
+            from app.controllers.ai_controller import ai_controller
+            await ai_controller.auto_categorize(db, note)
+        except Exception as e:
+            db.rollback()
+            print(f"⚠️ Auto-categorization failed for note {note.id}: {e}")
+            db.refresh(note)
+
+        return note
+
+    @staticmethod
     def get_note_with_image(db: Session, note_id: int, user: User) -> dict:
         note = NoteController.get_note(db, note_id, user)
 

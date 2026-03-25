@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,29 @@ async def upload_note(
 ):
     """Upload and process a note with Gemini AI."""
     note = await note_controller.create_note(db, file, current_user, title, note_type)
+    return {
+        "id": note.id,
+        "title": note.title,
+        "image_filename": note.image_filename,
+        "status": note_controller._get_public_status(note),
+        "created_at": note.created_at,
+        "processed_at": note.processed_at,
+        "raw_text": note.raw_text,
+        "structured_text": note.structured_text,
+        "error_message": note.error_message,
+    }
+
+
+@router.post("/upload-multi")
+async def upload_multi_page_note(
+    files: List[UploadFile] = File(...),
+    title: Optional[str] = Form(None),
+    note_type: str = Query(default="default", enum=["default", "lecture", "meeting"]),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload multiple images and merge them into a single note."""
+    note = await note_controller.create_multi_page_note(db, files, current_user, title, note_type)
     return {
         "id": note.id,
         "title": note.title,

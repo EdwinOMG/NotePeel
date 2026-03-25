@@ -117,6 +117,33 @@ export const notesAPI = {
     return response.json();
   },
   
+  uploadMultiPage: async (files: File[], noteType: string = 'default', title?: string): Promise<Note> => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
+    if (title) formData.append('title', title);
+
+    const token = getToken();
+    const url = `${API_URL}/api/notes/upload-multi?note_type=${noteType}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (response.status === 401) {
+      handleTokenExpired();
+      throw new Error('Session expired. Please log in again.');
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || 'Upload failed');
+    }
+
+    return response.json();
+  },
+
   getAll: (): Promise<Note[]> => fetchWithAuth('/api/notes/'),
 
   search: (query: string, subject?: string, topic?: string): Promise<Note[]> => {

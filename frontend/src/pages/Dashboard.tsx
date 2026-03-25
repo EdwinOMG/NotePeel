@@ -88,6 +88,10 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchMode, setBatchMode] = useState<'merge' | 'separate'>('merge');
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, status: '' });
   const [hoveredTopMenu, setHoveredTopMenu] = useState<string | null>(null);
   
   const editorRef = useRef<HTMLDivElement>(null);
@@ -285,26 +289,79 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
   }, [searchQuery, notes]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setShowPeelingModal(true);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    e.target.value = '';
     setActiveMenu(null);
 
+    // Single file: upload immediately (original behavior)
+    if (files.length === 1) {
+      setUploading(true);
+      setShowPeelingModal(true);
+      try {
+        const newNote = await notesAPI.upload(files[0], noteType);
+        setNotes([newNote, ...notes]);
+        await viewNote(newNote);
+        const feedback = getUploadFeedback(newNote);
+        setMessage(feedback.message);
+        setTimeout(() => setMessage(''), feedback.timeoutMs);
+      } catch (err) {
+        setMessage('Error: ' + (err instanceof Error ? err.message : 'Upload failed'));
+      } finally {
+        setUploading(false);
+        setShowPeelingModal(false);
+      }
+      return;
+    }
+
+    // Multiple files: show batch modal for mode selection
+    setPendingFiles(files);
+    setBatchMode('merge');
+    setShowBatchModal(true);
+  };
+
+  const handleBatchUpload = async () => {
+    if (!pendingFiles.length) return;
+    setShowBatchModal(false);
+    setUploading(true);
+    setShowPeelingModal(true);
+
     try {
-      const newNote = await notesAPI.upload(file, noteType);
-      setNotes([newNote, ...notes]);
-      await viewNote(newNote);
-      const feedback = getUploadFeedback(newNote);
-      setMessage(feedback.message);
-      setTimeout(() => setMessage(''), feedback.timeoutMs);
+      if (batchMode === 'merge') {
+        // Multi-page merge: all files → 1 note
+        setBatchProgress({ current: 0, total: pendingFiles.length, status: `Processing ${pendingFiles.length} pages...` });
+        const newNote = await notesAPI.uploadMultiPage(pendingFiles, noteType);
+        setNotes([newNote, ...notes]);
+        await viewNote(newNote);
+        const feedback = getUploadFeedback(newNote);
+        setMessage(feedback.message || `Merged ${pendingFiles.length} pages into one note`);
+        setTimeout(() => setMessage(''), 4000);
+      } else {
+        // Batch separate: each file → its own note
+        const newNotes: Note[] = [];
+        for (let i = 0; i < pendingFiles.length; i++) {
+          setBatchProgress({ current: i + 1, total: pendingFiles.length, status: `Uploading ${i + 1} of ${pendingFiles.length}...` });
+          try {
+            const newNote = await notesAPI.upload(pendingFiles[i], noteType);
+            newNotes.push(newNote);
+          } catch {
+            // continue with remaining files
+          }
+        }
+        if (newNotes.length > 0) {
+          setNotes([...newNotes.reverse(), ...notes]);
+          await viewNote(newNotes[newNotes.length - 1]);
+        }
+        setMessage(`Uploaded ${newNotes.length} of ${pendingFiles.length} notes`);
+        setTimeout(() => setMessage(''), 4000);
+      }
     } catch (err) {
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Upload failed'));
     } finally {
       setUploading(false);
       setShowPeelingModal(false);
-      e.target.value = '';
+      setPendingFiles([]);
+      setBatchProgress({ current: 0, total: 0, status: '' });
     }
   };
 
@@ -1418,7 +1475,7 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          multiple
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
@@ -2612,6 +2669,73 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
         </div>
       )}
 
+      {/* Batch Upload Modal */}
+      {showBatchModal && pendingFiles.length > 1 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => { setShowBatchModal(false); setPendingFiles([]); }}>
+          <div style={{ background: theme.cardBg, borderRadius: '16px', padding: '30px', maxWidth: '480px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, color: theme.text, fontSize: '18px' }}>Upload {pendingFiles.length} Images</h2>
+              <button onClick={() => { setShowBatchModal(false); setPendingFiles([]); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
+            </div>
+
+            {/* File list preview */}
+            <div style={{ maxHeight: '120px', overflowY: 'auto', marginBottom: '20px', padding: '10px', background: darkMode ? '#1C1917' : '#f9f9f9', borderRadius: '8px', fontSize: '13px', color: theme.textSecondary }}>
+              {pendingFiles.map((f, i) => (
+                <div key={i} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: '#FF9800' }}>Page {i + 1}:</span> {f.name}
+                </div>
+              ))}
+            </div>
+
+            {/* Mode selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
+              <label
+                onClick={() => setBatchMode('merge')}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px',
+                  border: `2px solid ${batchMode === 'merge' ? '#FF9800' : theme.border}`,
+                  borderRadius: '10px', cursor: 'pointer',
+                  background: batchMode === 'merge' ? (darkMode ? '#3C2F1C' : '#FFF8E1') : 'transparent',
+                }}
+              >
+                <input type="radio" checked={batchMode === 'merge'} onChange={() => setBatchMode('merge')} style={{ marginTop: '2px', accentColor: '#FF9800' }} />
+                <div>
+                  <div style={{ fontWeight: 'bold', color: theme.text, fontSize: '14px' }}>Merge into one note</div>
+                  <div style={{ fontSize: '12px', color: theme.textSecondary, marginTop: '2px' }}>Combine all pages into a single note with page dividers</div>
+                </div>
+              </label>
+              <label
+                onClick={() => setBatchMode('separate')}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px',
+                  border: `2px solid ${batchMode === 'separate' ? '#FF9800' : theme.border}`,
+                  borderRadius: '10px', cursor: 'pointer',
+                  background: batchMode === 'separate' ? (darkMode ? '#3C2F1C' : '#FFF8E1') : 'transparent',
+                }}
+              >
+                <input type="radio" checked={batchMode === 'separate'} onChange={() => setBatchMode('separate')} style={{ marginTop: '2px', accentColor: '#FF9800' }} />
+                <div>
+                  <div style={{ fontWeight: 'bold', color: theme.text, fontSize: '14px' }}>Create separate notes</div>
+                  <div style={{ fontSize: '12px', color: theme.textSecondary, marginTop: '2px' }}>Each image becomes its own individual note</div>
+                </div>
+              </label>
+            </div>
+
+            {/* Upload button */}
+            <button
+              onClick={handleBatchUpload}
+              style={{
+                width: '100%', padding: '12px', border: 'none', borderRadius: '8px',
+                background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                color: '#5D4037', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold',
+              }}
+            >
+              {batchMode === 'merge' ? `Merge & Upload ${pendingFiles.length} Pages` : `Upload ${pendingFiles.length} Notes`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Peeling Loading Modal */}
       {showPeelingModal && (
         <div style={{ 
@@ -2641,15 +2765,20 @@ export default function Dashboard({ userEmail, onLogout, onOpenSettings, initial
             textAlign: 'center',
             textShadow: '0 2px 10px rgba(0,0,0,0.5)'
           }}>
-            🍌 Peeling your notes...
+            🍌 {batchProgress.total > 1 ? `Peeling ${batchProgress.total} pages...` : 'Peeling your notes...'}
           </div>
           <div style={{
             color: '#fff',
             fontSize: '14px',
             opacity: 0.7
           }}>
-            This may take a few seconds
+            {batchProgress.status || 'This may take a few seconds'}
           </div>
+          {batchProgress.total > 1 && (
+            <div style={{ width: '200px', height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '3px', marginTop: '8px' }}>
+              <div style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%`, height: '100%', background: '#FFC107', borderRadius: '3px', transition: 'width 0.3s' }} />
+            </div>
+          )}
           <style>{`
             @keyframes bounce {
               0%, 100% { transform: translateY(0); }
