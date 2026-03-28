@@ -25,6 +25,7 @@ ENV/
 # IDE / Editor files
 .vscode/
 .idea/
+.claude/
 *.swp
 *.sublime-project
 *.sublime-workspace
