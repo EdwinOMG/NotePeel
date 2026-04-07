@@ -33,3 +33,38 @@ Threshold - Converting the image to black and white and adjusting the threshold
 Despeckle/Noise Reduction: If the image is grainy, reducing the noise helps text stand out
 
 
+
+
+to run test 
+pytest tests/backend/ -v
+
+run individual tests 
+pytest tests/backend/test_auth.py -v
+pytest tests/backend/test_notes.py -v
+pytest tests/backend/test_notebooks.py -v
+pytest tests/backend/test_ai.py -v
+
+run all frontend tests
+npx vitest run
+
+run with ui 
+
+npx vitest --ui
+
+run specific file 
+npx vitest run tests/frontend/api.test.ts
+
+
+Test File Summary
+Backend File
+What it covers
+test_auth.py Password hashing, JWT tokens, user CRUD, login flow
+
+test_notes.py Note CRUD, search, image compression, HTML builder
+test_notebooks.py Notebook CRUD, add/remove notes, ownership
+test_ai.py _clean_json, _call, flashcards, summaries, explanations, auto-categorize
+
+Frontend File What it covers
+api.test.ts All API methods, auth headers, 401 expiry handling
+Login.Register.test.tsx Form validation, submit, error display, loading states
+NotebooksPage.NotebookView.test.tsx Notebook list, CRUD, notes list, modal flows

@@ -3,6 +3,8 @@ fastapi==0.102.0
 uvicorn[standard]==0.23.2
 python-multipart>=0.0.6
 
+
+
 # Environment
 python-dotenv==1.0.1
 
@@ -28,3 +30,5 @@ boto3>=1.28.0
 
 # Image Processing
 Pillow>=10.0.0
+
+httpx>=0.28.0
