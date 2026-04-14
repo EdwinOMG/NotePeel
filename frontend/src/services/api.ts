@@ -13,8 +13,9 @@ import type {
   FlashcardSet
 } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
-
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+// This ensures there is NO trailing slash, so your routes like "/api/..." work perfectly
+const API_URL = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
 
 const getToken = (): string | null => localStorage.getItem('token');
 
@@ -92,8 +93,8 @@ export const notesAPI = {
     formData.append('file', file);
     
     const token = getToken();
-    let url = `${API_URL}/api/notes/upload?note_type=${noteType}`;
-    if (notebookId) {
+    const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+    let url = `${baseUrl}/api/notes/upload?note_type=${noteType}`;    if (notebookId) {
       url += `&notebook_id=${notebookId}`;
     }
     
