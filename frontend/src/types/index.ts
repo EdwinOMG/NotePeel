@@ -69,18 +69,6 @@ export interface FlashcardSet {
   created_at: string;
 }
 
-// Shared note (public view)
-export interface SharedNote {
-  title: string;
-  structured_text: string;
-  raw_text: string;
-  subject?: string;
-  topic?: string;
-  tags?: string;
-  created_at: string;
-  owner_username?: string;
-}
-
 // Notebook types
 export interface Notebook {
   id: number;
