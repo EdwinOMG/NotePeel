@@ -13,7 +13,7 @@ import type {
   FlashcardSet
 } from '../types';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const BASE_URL = import.meta.env.VITE_API_URL
 // This ensures there is NO trailing slash, so your routes like "/api/..." work perfectly
 const API_URL = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
 
