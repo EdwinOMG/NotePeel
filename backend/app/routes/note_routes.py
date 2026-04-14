@@ -25,12 +25,8 @@ async def upload_note(
         "id": note.id,
         "title": note.title,
         "image_filename": note.image_filename,
-        "status": note_controller._get_public_status(note),
-        "created_at": note.created_at,
-        "processed_at": note.processed_at,
-        "raw_text": note.raw_text,
-        "structured_text": note.structured_text,
-        "error_message": note.error_message,
+        "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
+        "created_at": note.created_at
     }
 
 
@@ -48,7 +44,7 @@ def get_notes(
             "id": n.id,
             "title": n.title,
             "image_filename": n.image_filename,
-            "status": note_controller._get_public_status(n),
+            "status": n.status.value if hasattr(n.status, 'value') else str(n.status),
             "created_at": n.created_at,
             "subject": n.subject,
             "topic": n.topic,
@@ -73,7 +69,7 @@ def search_notes(
             "id": n.id,
             "title": n.title,
             "image_filename": n.image_filename,
-            "status": note_controller._get_public_status(n),
+            "status": n.status.value if hasattr(n.status, 'value') else str(n.status),
             "created_at": n.created_at,
             "subject": n.subject,
             "topic": n.topic,
@@ -105,7 +101,7 @@ def get_note(
         "title": note.title,
         "raw_text": note.raw_text,
         "structured_text": note.structured_text,
-        "status": note_controller._get_public_status(note),
+        "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
         "created_at": note.created_at
     }
 

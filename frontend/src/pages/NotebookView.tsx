@@ -1,56 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { notebooksAPI, notesAPI } from '../services/api';
-import NotebookCoverIcon from '../components/NotebookCoverIcon';
-import ProfileMenu from '../components/ProfileMenu';
 import type { NotebookWithNotes, Note } from '../types';
-import { getUploadFeedback } from '../utils/noteExtraction';
 
 interface NotebookViewProps {
   notebookId: number;
-  userEmail: string;
   onBack: () => void;
-  onOpenNote: (noteId: number, notebookId: number, notebookColor: string) => void;
+  onOpenNote: (noteId: number, notebookId: number) => void;
   onCreateNote: (notebookId: number) => void;
-  onOpenSettings: () => void;
-  onLogout: () => void;
   darkMode?: boolean;
 }
 
-const hexToRgb = (hex: string) => {
-  const normalized = hex.replace('#', '');
-  const safeHex = normalized.length === 3
-    ? normalized.split('').map((char) => char + char).join('')
-    : normalized;
-
-  return {
-    r: parseInt(safeHex.slice(0, 2), 16),
-    g: parseInt(safeHex.slice(2, 4), 16),
-    b: parseInt(safeHex.slice(4, 6), 16),
-  };
-};
-
-const mixHexColors = (baseHex: string, mixHex: string, ratio: number) => {
-  const base = hexToRgb(baseHex);
-  const mix = hexToRgb(mixHex);
-  const clampRatio = Math.max(0, Math.min(1, ratio));
-
-  const channel = (from: number, to: number) => Math.round(from + (to - from) * clampRatio);
-
-  return `rgb(${channel(base.r, mix.r)}, ${channel(base.g, mix.g)}, ${channel(base.b, mix.b)})`;
-};
-
-const rgbaFromHex = (hex: string, alpha: number) => {
-  const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
-
-const getContrastColor = (hex: string) => {
-  const { r, g, b } = hexToRgb(hex);
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  return luminance > 0.45 ? '#1a1a1a' : '#ffffff';
-};
-
-export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote, onCreateNote, onOpenSettings, onLogout, darkMode = false }: NotebookViewProps) {
+export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote, darkMode = false }: NotebookViewProps) {
   const [notebook, setNotebook] = useState<NotebookWithNotes | null>(null);
   const [availableNotes, setAvailableNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,20 +20,17 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
   const [uploading, setUploading] = useState(false);
   const [noteType, setNoteType] = useState<'default' | 'lecture' | 'meeting'>('default');
   const [showPeelingModal, setShowPeelingModal] = useState(false);
-  const notebookColor = notebook?.color ?? '#1F2A44';
-  const headerText = getContrastColor(notebookColor);
-  const headerTextSecondary = rgbaFromHex(getContrastColor(notebookColor), 0.65);
 
+  // Theme colors
   const theme = {
-    bg: darkMode ? '#1C1917' : '#f5f5f5',
-    cardBg: darkMode ? '#292524' : '#ffffff',
-    text: darkMode ? '#F5F0E8' : '#1a1a1a',
-    textSecondary: darkMode ? '#A8A29E' : '#666666',
-    border: darkMode ? '#44403C' : '#e8e8e8',
-    accentSoft: darkMode ? '#3C3836' : mixHexColors(notebookColor, '#FFFFFF', 0.9),
-    shadowSoft: darkMode ? 'rgba(0,0,0,0.3)' : rgbaFromHex(notebookColor, 0.08),
-    shadowMedium: darkMode ? 'rgba(0,0,0,0.3)' : rgbaFromHex(notebookColor, 0.14),
-    shadowStrong: darkMode ? 'rgba(0,0,0,0.3)' : rgbaFromHex(notebookColor, 0.22),
+    bg: darkMode ? '#1a1a2e' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
+    cardBg: darkMode ? '#252542' : '#ffffff',
+    headerBg: darkMode ? '#2d2d4a' : '#ffffff',
+    text: darkMode ? '#e4e4e7' : '#5D4037',
+    textSecondary: darkMode ? '#a1a1aa' : '#8D6E63',
+    border: darkMode ? '#3f3f5a' : '#ddd',
+    buttonBg: darkMode ? '#3f3f5a' : '#f5f5f5',
+    buttonHover: darkMode ? '#4a4a6a' : '#e8e8e8',
   };
 
   useEffect(() => {
@@ -136,10 +93,9 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
       // Add to notebook
       await notebooksAPI.addNote(notebookId, newNote.id);
       await loadNotebook();
-      const feedback = getUploadFeedback(newNote);
-      setMessage(feedback.message);
+      setMessage('🐵 Note created and added to notebook!');
       // Open the new note in editor
-      onOpenNote(newNote.id, notebookId, notebookColor);
+      onOpenNote(newNote.id, notebookId);
     } catch (err) {
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed'));
     } finally {
@@ -159,12 +115,32 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
     });
   };
 
+  const getStatusBadge = (status: string) => {
+    const styles: Record<string, { bg: string; color: string; text: string }> = {
+      completed: { bg: '#E8F5E9', color: '#2E7D32', text: '✓ Ready' },
+      processing: { bg: '#FFF3E0', color: '#E65100', text: '⏳ Processing' },
+      failed: { bg: '#FFEBEE', color: '#C62828', text: '✕ Failed' },
+      pending: { bg: '#E3F2FD', color: '#1565C0', text: '○ Pending' }
+    };
+    const style = styles[status] || styles.pending;
+    return (
+      <span style={{
+        padding: '4px 8px',
+        borderRadius: '12px',
+        fontSize: '12px',
+        background: style.bg,
+        color: style.color
+      }}>
+        {style.text}
+      </span>
+    );
+  };
 
   if (loading) {
     return (
       <div style={{
         minHeight: '100vh',
-        background: darkMode ? '#1C1917' : '#f5f5f5',
+        background: theme.bg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
@@ -209,43 +185,53 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
 
   return (
     <div style={{ minHeight: '100vh', background: theme.bg }}>
-      {/* Hero Header */}
-      <div style={{ background: notebookColor }}>
-        {/* Top nav row */}
-        <div style={{ padding: '18px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <button
-            onClick={onBack}
-            style={{
-              padding: '8px 16px',
-              background: 'rgba(255,255,255,0.18)',
-              border: '1px solid rgba(255,255,255,0.3)',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              color: headerText,
-              fontSize: '14px',
-              fontWeight: 500,
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            ← Back
-          </button>
-
+      {/* Header */}
+      <div style={{
+        background: theme.headerBg,
+        borderBottom: `1px solid ${theme.border}`,
+        boxShadow: darkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.05)'
+      }}>
+        {/* Color Banner */}
+        <div style={{ height: '6px', background: notebook.color }} />
+        
+        <div style={{ padding: '15px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <button
+              onClick={onBack}
+              style={{
+                padding: '8px 16px',
+                background: theme.buttonBg,
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: theme.text
+              }}
+            >
+              ← Back
+            </button>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '24px', color: theme.text }}>📓 {notebook.name}</h1>
+              <p style={{ margin: 0, fontSize: '12px', color: theme.textSecondary }}>
+                {notebook.note_count} note{notebook.note_count !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {/* Note Type Selector */}
             <select
               value={noteType}
               onChange={(e) => setNoteType(e.target.value as 'default' | 'lecture' | 'meeting')}
               style={{
                 padding: '8px 12px',
-                border: '1px solid rgba(255,255,255,0.3)',
-                borderRadius: '8px',
-                background: 'rgba(255,255,255,0.18)',
+                border: `1px solid ${theme.border}`,
+                borderRadius: '6px',
+                background: darkMode ? '#3f3f5a' : '#FFF8E1',
                 fontSize: '14px',
-                color: headerText,
-                backdropFilter: 'blur(4px)',
-                cursor: 'pointer',
+                color: theme.text
               }}
             >
               <option value="default">📝 Default</option>
@@ -257,74 +243,39 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               style={{
-                padding: '10px 22px',
-                background: uploading ? 'rgba(255,255,255,0.3)' : '#FFC107',
-                color: uploading ? headerText : '#5D4037',
+                padding: '10px 20px',
+                background: uploading ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                color: '#5D4037',
                 border: 'none',
                 borderRadius: '8px',
                 cursor: uploading ? 'not-allowed' : 'pointer',
-                fontWeight: 700,
-                fontSize: '14px',
+                fontWeight: 'bold',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                gap: '6px'
               }}
             >
               {uploading ? '🍌 Peeling...' : '+ Upload Note'}
             </button>
-
+            
             <button
               onClick={loadAvailableNotes}
               style={{
                 padding: '10px 20px',
-                background: 'rgba(255,255,255,0.18)',
-                border: '1px solid rgba(255,255,255,0.3)',
+                background: theme.buttonBg,
+                border: `1px solid ${theme.border}`,
                 borderRadius: '8px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                color: headerText,
-                fontSize: '14px',
-                fontWeight: 500,
-                backdropFilter: 'blur(4px)',
+                color: theme.text
               }}
             >
               📎 Add Existing
             </button>
-
-            <ProfileMenu
-              userEmail={userEmail}
-              onLogout={onLogout}
-              onOpenSettings={onOpenSettings}
-              darkMode={darkMode}
-              variant="hero"
-              heroTextColor={headerText}
-            />
           </div>
         </div>
-
-        {/* Notebook identity */}
-        <div style={{ padding: '4px 30px 28px', display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <NotebookCoverIcon color={notebook.color} width={58} height={66} />
-          <div>
-            <h1 style={{ margin: 0, fontSize: '30px', fontWeight: 700, color: headerText, letterSpacing: '-0.5px' }}>
-              {notebook.name}
-            </h1>
-            <p style={{ margin: '5px 0 0', fontSize: '13px', color: headerTextSecondary }}>
-              {notebook.note_count} note{notebook.note_count !== 1 ? 's' : ''}
-            </p>
-          </div>
-        </div>
-
-        {/* Fade into content */}
-        <div style={{
-          height: '32px',
-          background: darkMode
-            ? `linear-gradient(to bottom, ${notebookColor}, #1C1917)`
-            : `linear-gradient(to bottom, ${notebookColor}, #f5f5f5)`,
-        }} />
       </div>
 
       {/* Hidden file input */}
@@ -341,12 +292,11 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
       {message && (
         <div style={{
           padding: '10px 30px',
-          background: message.includes('Error') ? '#ffebee' : (darkMode ? '#3C3836' : theme.accentSoft),
+          background: message.includes('Error') ? '#ffebee' : (darkMode ? '#3f3f5a' : '#FFF8E1'),
           color: message.includes('Error') ? '#c62828' : theme.text,
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: message.includes('Error') ? 'none' : `1px solid ${theme.border}`,
+          alignItems: 'center'
         }}>
           <span>{message}</span>
           <button onClick={() => setMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.text }}>✕</button>
@@ -362,7 +312,7 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
             padding: '60px',
             background: theme.cardBg,
             borderRadius: '16px',
-            boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : `0 12px 30px ${theme.shadowMedium}`,
+            boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.08)',
             border: `1px solid ${theme.border}`
           }}>
             <div style={{ fontSize: '64px', marginBottom: '20px' }}>📝</div>
@@ -373,8 +323,8 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
                 onClick={() => fileInputRef.current?.click()}
                 style={{
                   padding: '12px 24px',
-                  background: notebookColor,
-                  color: getContrastColor(notebookColor),
+                  background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                  color: '#5D4037',
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: 'bold',
@@ -409,27 +359,18 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
                 style={{
                   background: theme.cardBg,
                   borderRadius: '12px',
-                  padding: '20px 20px 20px 24px',
-                  boxShadow: darkMode ? '0 2px 8px rgba(0,0,0,0.2)' : `0 4px 16px ${theme.shadowSoft}`,
+                  padding: '20px',
+                  boxShadow: darkMode ? '0 2px 8px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.06)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   cursor: 'pointer',
-                  transition: 'box-shadow 0.2s, transform 0.2s',
-                  border: `1px solid ${theme.border}`,
-                  borderLeft: `4px solid ${notebookColor}`,
+                  transition: 'box-shadow 0.2s',
+                  border: `1px solid ${theme.border}`
                 }}
-                onClick={() => onOpenNote(note.id, notebookId, notebookColor)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = darkMode ? '0 4px 16px rgba(0,0,0,0.3)' : `0 10px 28px ${theme.shadowStrong}`;
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.borderLeft = '4px solid #FFC107';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = darkMode ? '0 2px 8px rgba(0,0,0,0.2)' : `0 4px 16px ${theme.shadowSoft}`;
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.borderLeft = `4px solid ${notebookColor}`;
-                }}
+                onClick={() => onOpenNote(note.id, notebookId)}
+                onMouseEnter={(e) => e.currentTarget.style.boxShadow = darkMode ? '0 4px 16px rgba(0,0,0,0.3)' : '0 4px 16px rgba(0,0,0,0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.boxShadow = darkMode ? '0 2px 8px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.06)'}
               >
                 <div>
                   <h3 style={{ margin: '0 0 6px', color: theme.text, fontSize: '16px' }}>
@@ -441,6 +382,7 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {getStatusBadge(note.status)}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRemoveNote(note.id); }}
                     style={{
@@ -488,8 +430,7 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
               maxWidth: '500px',
               maxHeight: '70vh',
               overflow: 'auto',
-              boxShadow: darkMode ? '0 8px 32px rgba(0,0,0,0.2)' : `0 20px 50px ${theme.shadowStrong}`,
-              border: `1px solid ${theme.border}`,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -509,9 +450,8 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       padding: '12px',
-                      background: darkMode ? '#3C3836' : theme.accentSoft,
-                      borderRadius: '8px',
-                      border: `1px solid ${theme.border}`,
+                      background: darkMode ? '#3f3f5a' : '#f9f9f9',
+                      borderRadius: '8px'
                     }}
                   >
                     <span style={{ color: theme.text }}>📄 {note.title}</span>
@@ -519,12 +459,12 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
                       onClick={() => handleAddNote(note.id)}
                       style={{
                         padding: '6px 12px',
-                        background: notebookColor,
+                        background: '#FFC107',
                         border: 'none',
                         borderRadius: '6px',
                         cursor: 'pointer',
                         fontWeight: 'bold',
-                        color: getContrastColor(notebookColor),
+                        color: '#5D4037'
                       }}
                     >
                       Add
@@ -541,7 +481,7 @@ export default function NotebookView({ notebookId, userEmail, onBack, onOpenNote
                 marginTop: '20px',
                 padding: '12px',
                 background: theme.buttonBg,
-                border: `1px solid ${theme.border}`,
+                border: 'none',
                 borderRadius: '8px',
                 cursor: 'pointer',
                 color: theme.text
