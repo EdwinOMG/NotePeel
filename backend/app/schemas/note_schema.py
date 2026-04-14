@@ -1,7 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict # Added ConfigDict here
 from typing import Optional
 from datetime import datetime
-
 
 class NoteUpdate(BaseModel):
     """Schema for updating a note."""
@@ -11,9 +10,10 @@ class NoteUpdate(BaseModel):
     topic: Optional[str] = None
     tags: Optional[str] = None
 
-
 class NoteResponse(BaseModel):
     """Schema for note response."""
+    model_config = ConfigDict(from_attributes=True) # Updated
+
     id: int
     title: Optional[str]
     image_filename: Optional[str]
@@ -21,26 +21,22 @@ class NoteResponse(BaseModel):
     created_at: datetime
     subject: Optional[str] = None
     topic: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
-
 
 class NoteWithText(BaseModel):
     """Schema for note with text content."""
+    model_config = ConfigDict(from_attributes=True) # Updated
+
     id: int
     title: Optional[str]
     raw_text: Optional[str]
     structured_text: Optional[str]
     status: str
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
 
 class NoteWithImage(BaseModel):
     """Schema for note with image."""
+    model_config = ConfigDict(from_attributes=True) # Updated
+
     id: int
     title: Optional[str]
     image_filename: Optional[str]
@@ -55,6 +51,3 @@ class NoteWithImage(BaseModel):
     error_message: Optional[str] = None
     created_at: datetime
     processed_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True

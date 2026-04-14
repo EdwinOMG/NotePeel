@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.note import Note
-from app.models.flashcard import FlashcardSet, Flashcard, AISummary, AIExplanation
+from app.models.ai_models import FlashcardSet, Flashcard, AISummary, AIExplanation
 from app.controllers.auth_controller import get_current_user
 from app.services import workers_ai
 
