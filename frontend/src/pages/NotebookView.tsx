@@ -10,7 +10,7 @@ interface NotebookViewProps {
   darkMode?: boolean;
 }
 
-export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote, darkMode = false }: NotebookViewProps) {
+export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote: _onCreateNote, darkMode = false }: NotebookViewProps) {
   const [notebook, setNotebook] = useState<NotebookWithNotes | null>(null);
   const [availableNotes, setAvailableNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
