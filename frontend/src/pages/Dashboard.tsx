@@ -11,7 +11,7 @@ interface DashboardProps {
   darkMode?: boolean;
 }
 
-export default function Dashboard({ userEmail, onLogout, initialNoteId, notebookId, onBack, darkMode = false }: DashboardProps) {
+export default function Dashboard({ userEmail, onLogout, initialNoteId, notebookId: _notebookId, onBack, darkMode = false }: DashboardProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<NoteWithImage | null>(null);
   const [message, setMessage] = useState('');
@@ -57,6 +57,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [editTitle, setEditTitle] = useState('');
   const [folderMenuNote, setFolderMenuNote] = useState<number | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [activeSubjectFilter, setActiveSubjectFilter] = useState<string | null>(null);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showPeelingModal, setShowPeelingModal] = useState(false);
   
@@ -166,30 +167,24 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     }
   };
 
-  // Search with debounce
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredNotes(notes);
-      setIsSearching(false);
-      return;
-    }
-    setIsSearching(true);
-    const timer = setTimeout(async () => {
-      try {
-        const results = await notesAPI.search(searchQuery);
-        setFilteredNotes(results);
-      } catch {
-        setFilteredNotes(notes.filter(n =>
-          (n.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (n.subject || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (n.tags || '').toLowerCase().includes(searchQuery.toLowerCase())
-        ));
-      } finally {
-        setIsSearching(false);
+  const assignFolder = async (noteId: number, subject: string) => {
+    try {
+      await notesAPI.update(noteId, { subject });
+      setNotes(notes.map(n => n.id === noteId ? { ...n, subject } : n));
+      setFilteredNotes(filteredNotes.map(n => n.id === noteId ? { ...n, subject } : n));
+      if (selectedNote?.id === noteId) {
+        setSelectedNote({ ...selectedNote, subject });
       }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, notes]);
+      // Refresh categories
+      const cats = await notesAPI.getCategories();
+      setCategories(cats);
+      setFolderMenuNote(null);
+      setMessage('📁 Folder updated!');
+      setTimeout(() => setMessage(''), 2000);
+    } catch (err) {
+      setMessage('Error updating folder: ' + (err instanceof Error ? err.message : 'Failed'));
+    }
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -438,11 +433,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setFlashcardIndex(0);
       setFlashcardFlipped(false);
       setShowFlashcards(true);
-      if (result.cached) {
-        setMessage('');
-      } else {
-        setMessage('');
-      }
+      setMessage('');
     } catch (err) {
       setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to generate flashcards'));
     } finally {

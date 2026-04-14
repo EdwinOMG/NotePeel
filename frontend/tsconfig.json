@@ -15,10 +15,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    
-    "types": ["vitest/globals", "node"], 
-    "baseUrl": "."
+    "types": ["vite/client", "vitest/globals", "node"]
   },
-  "include": ["src", "tests"], 
+  "include": ["src", "tests"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
