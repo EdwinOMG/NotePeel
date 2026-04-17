@@ -86,7 +86,7 @@ export default function SettingsPage({
             >
               ← Back
             </button>
-            <span style={{ fontSize: '36px' }}>🐵🍌</span>
+            <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
             <h1 style={{
               margin: 0,
               fontSize: '24px',
@@ -342,7 +342,7 @@ export default function SettingsPage({
               gap: '12px',
               marginBottom: '16px'
             }}>
-              <span style={{ fontSize: '32px' }}>🐵🍌</span>
+              <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '38px', height: '38px', objectFit: 'contain' }} />
               <div>
                 <p style={{
                   margin: '0 0 2px',

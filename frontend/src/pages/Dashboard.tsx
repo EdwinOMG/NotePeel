@@ -647,7 +647,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               ← Back
             </button>
           )}
-          <span style={{ fontSize: '20px' }}>🐵🍌</span>
+          <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
           <span style={{ fontWeight: 'bold', color: darkMode ? '#e4e4e7' : '#5D4037', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             NotePeel - {selectedNote?.title || 'Untitled'}
             {selectedNote && (
@@ -1688,7 +1688,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         justifyContent: 'space-between'
       }}>
         <span>{selectedNote ? `Editing: ${selectedNote.title || 'Untitled'}` : 'No note selected - Use File → Upload New Note to get started'}</span>
-        <span>{charCount} characters • {wordCount} words • {zoom}% | Gemini AI 🐵🍌</span>
+        <span>{charCount} characters • {wordCount} words • {zoom}% | Gemini AI</span>
       </div>
     </div>
   );

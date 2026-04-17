@@ -28,12 +28,18 @@ app = FastAPI(
 )
 
 # CORS middleware
+import os
+
+# In production (Render), restrict CORS. In dev, allow all origins for local network testing.
+cors_origins = [
+    "https://notepeel-frontend.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://notepeel-frontend.onrender.com",
-        "http://localhost:5173", # Keep this for local testing
-    ],
+    allow_origins=["*"] if os.getenv("DEBUG", "true").lower() == "true" else cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -382,7 +382,6 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {getStatusBadge(note.status)}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRemoveNote(note.id); }}
                     style={{
