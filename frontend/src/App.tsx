@@ -11,6 +11,7 @@ import MobileNotebookView from './pages/MobileNotebookView';
 import MobileNoteViewer from './pages/MobileNoteViewer';
 import MobileSettings from './pages/MobileSettings';
 import InstallPrompt from './pages/InstallPrompt';
+import DesktopInstallBanner from './pages/DesktopInstallBanner';
 
 type Page = 
   | { type: 'login' }
@@ -186,9 +187,18 @@ function App() {
   }
 
   // ─── DESKTOP ROUTING (unchanged) ─────────────────────────────
+  
+  // Wrap desktop pages with the install banner
+  const withBanner = (page: React.ReactNode) => (
+    <>
+      <DesktopInstallBanner />
+      {page}
+    </>
+  );
+
   switch (currentPage.type) {
     case 'notebooks':
-      return (
+      return withBanner(
         <NotebooksPage
           userEmail={userEmail}
           onLogout={handleLogout}
@@ -199,7 +209,7 @@ function App() {
       );
 
     case 'notebook':
-      return (
+      return withBanner(
         <NotebookView
           notebookId={currentPage.notebookId}
           onBack={() => setCurrentPage({ type: 'notebooks' })}
@@ -210,7 +220,7 @@ function App() {
       );
 
     case 'editor':
-      return (
+      return withBanner(
         <Dashboard
           userEmail={userEmail}
           onLogout={handleLogout}
@@ -228,7 +238,7 @@ function App() {
       );
 
     case 'settings':
-      return (
+      return withBanner(
         <SettingsPage
           userEmail={userEmail}
           onBack={() => setCurrentPage({ type: 'notebooks' })}
@@ -239,7 +249,7 @@ function App() {
       );
 
     default:
-      return (
+      return withBanner(
         <NotebooksPage
           userEmail={userEmail}
           onLogout={handleLogout}
