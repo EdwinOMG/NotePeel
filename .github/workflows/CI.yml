@@ -1,0 +1,59 @@
+name: NotePeel CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          GEMINI_API_KEY: fake-key-for-tests
+          SECRET_KEY: test-secret-key
+          DATABASE_URL: sqlite:///test.db
+          R2_ENDPOINT: https://fake.r2.dev
+          R2_ACCESS_KEY_ID: fake
+          R2_SECRET_ACCESS_KEY: fake
+          R2_BUCKET_NAME: fake
+          R2_ACCOUNT_ID: fake
+        run: python -m pytest -v
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npx vitest run
