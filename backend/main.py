@@ -32,7 +32,7 @@ import os
 
 # In production (Render), restrict CORS. In dev, allow all origins for local network testing.
 cors_origins = [
-    "https://notepeel-frontend.onrender.com",
+    "https://notepeelfrontend.onrender.com",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
