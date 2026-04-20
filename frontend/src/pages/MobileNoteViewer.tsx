@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { notesAPI } from '../services/api';
-import type { NoteWithImage, FlashcardSet } from '../types';
+import type { NoteWithImage } from '../types';
 
 interface MobileNoteViewerProps {
   noteId: number;
