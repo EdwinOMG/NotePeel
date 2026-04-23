@@ -13,7 +13,9 @@ import type {
   FlashcardSet
 } from '../types';
 
-const API_URL = 'http://127.0.0.1:8000';
+// Use VITE_API_URL env var for production (Render), fall back to current hostname for local dev
+const BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
+const API_URL = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
 
 const getToken = (): string | null => localStorage.getItem('token');
 

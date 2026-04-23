@@ -204,7 +204,7 @@ export default function NotebooksPage({ userEmail, onLogout, onOpenNotebook, onO
           alignItems: 'center'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '36px' }}>🐵🍌</span>
+            <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
             <h1 style={{
               margin: 0,
               fontSize: '24px',

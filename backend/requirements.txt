@@ -28,3 +28,6 @@ boto3>=1.28.0
 
 # Image Processing
 Pillow>=10.0.0
+
+# HTTP Client (for testing)
+httpx>=0.28.0

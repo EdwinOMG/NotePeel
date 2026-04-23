@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     debug: bool = True
     
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/notepeel"
+    database_url: str
     
     # JWT Auth
     secret_key: str = "your-secret-key-change-in-production"

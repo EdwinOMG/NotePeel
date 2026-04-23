@@ -10,7 +10,7 @@ interface NotebookViewProps {
   darkMode?: boolean;
 }
 
-export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote, darkMode = false }: NotebookViewProps) {
+export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote: _onCreateNote, darkMode = false }: NotebookViewProps) {
   const [notebook, setNotebook] = useState<NotebookWithNotes | null>(null);
   const [availableNotes, setAvailableNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,26 +115,7 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
     });
   };
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, { bg: string; color: string; text: string }> = {
-      completed: { bg: '#E8F5E9', color: '#2E7D32', text: '✓ Ready' },
-      processing: { bg: '#FFF3E0', color: '#E65100', text: '⏳ Processing' },
-      failed: { bg: '#FFEBEE', color: '#C62828', text: '✕ Failed' },
-      pending: { bg: '#E3F2FD', color: '#1565C0', text: '○ Pending' }
-    };
-    const style = styles[status] || styles.pending;
-    return (
-      <span style={{
-        padding: '4px 8px',
-        borderRadius: '12px',
-        fontSize: '12px',
-        background: style.bg,
-        color: style.color
-      }}>
-        {style.text}
-      </span>
-    );
-  };
+  
 
   if (loading) {
     return (
@@ -382,7 +363,6 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {getStatusBadge(note.status)}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRemoveNote(note.id); }}
                     style={{
