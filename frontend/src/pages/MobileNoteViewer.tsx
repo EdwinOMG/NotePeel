@@ -358,20 +358,30 @@ export default function MobileNoteViewer({ noteId, onBack, darkMode }: MobileNot
         ))}
       </div>
 
-      {/* Hint banner */}
-      <div style={{
-        background: darkMode ? '#2a2a40' : '#FFF3E0',
-        padding: '10px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        borderBottom: `1px solid ${theme.border}`,
-      }}>
-        <span style={{ fontSize: '14px' }}>💡</span>
-        <span style={{ fontSize: '12px', color: theme.textSecondary, fontFamily: "'Inter', sans-serif" }}>
-          {activeTab === 'text' ? 'Long-press to select text, then tap Explain' : 'Open on desktop to edit this note'}
-        </span>
-      </div>
+      {/* Hint banners - text tab only */}
+      {activeTab === 'text' && (
+        <div style={{
+          background: darkMode ? '#2a2a40' : '#FFF3E0',
+          padding: '8px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          borderBottom: `1px solid ${theme.border}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '14px' }}>💻</span>
+            <span style={{ fontSize: '12px', color: theme.textSecondary, fontFamily: "'Inter', sans-serif" }}>
+              Open on desktop to edit this note
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '14px' }}>💡</span>
+            <span style={{ fontSize: '12px', color: theme.textSecondary, fontFamily: "'Inter', sans-serif" }}>
+              Long-press to select text, then tap Explain
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div ref={contentRef} style={{ flex: 1, overflowY: 'auto' }}>
