@@ -1,6 +1,4 @@
 import type { 
-  UserCreate, 
-  UserLogin, 
   AuthToken, 
   User, 
   Note, 
@@ -54,8 +52,8 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
   
   // Handle 401 Unauthorized (token expired or invalid)
   if (response.status === 401) {
-    // Don't redirect on login/register attempts
-    if (!url.includes('/auth/login') && !url.includes('/auth/register')) {
+    // Don't redirect on auth attempts
+    if (!url.includes('/auth/google') && !url.includes('/auth/microsoft')) {
       handleTokenExpired();
       throw new Error('Session expired. Please log in again.');
     }
@@ -75,16 +73,13 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
 }
 
 export const authAPI = {
-  register: (data: UserCreate): Promise<User> => 
-    fetchWithAuth('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
-    
-  login: (data: UserLogin): Promise<AuthToken> =>
-    fetchWithAuth('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
-    
-  getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
-
   googleLogin: (credential: string): Promise<AuthToken> =>
     fetchWithAuth('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
+
+  microsoftLogin: (microsoft_id: string, email: string, name: string): Promise<AuthToken> =>
+    fetchWithAuth('/api/auth/microsoft', { method: 'POST', body: JSON.stringify({ microsoft_id, email, name }) }),
+
+  getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
 };
 
 export const notesAPI = {

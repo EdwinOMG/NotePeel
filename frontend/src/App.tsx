@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useIsMobile } from './hooks/useIsMobile';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import NotebooksPage from './pages/NotebooksPage';
 import NotebookView from './pages/NotebookView';
 import Dashboard from './pages/Dashboard';
@@ -15,7 +14,6 @@ import DesktopInstallBanner from './pages/DesktopInstallBanner';
 
 type Page = 
   | { type: 'login' }
-  | { type: 'register' }
   | { type: 'notebooks' }
   | { type: 'notebook'; notebookId: number }
   | { type: 'editor'; noteId: number; notebookId?: number }
@@ -87,21 +85,10 @@ function App() {
     );
   }
 
-  // Not authenticated - show login/register (same for both mobile and desktop)
+  // Not authenticated - show Google sign-in (same for both mobile and desktop)
   if (!isAuthenticated) {
-    if (currentPage.type === 'register') {
-      return (
-        <Register
-          onRegister={handleLogin}
-          onSwitchToLogin={() => setCurrentPage({ type: 'login' })}
-        />
-      );
-    }
     return (
-      <Login
-        onLogin={handleLogin}
-        onSwitchToRegister={() => setCurrentPage({ type: 'register' })}
-      />
+      <Login onLogin={handleLogin} />
     );
   }
 

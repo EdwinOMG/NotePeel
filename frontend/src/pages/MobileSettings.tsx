@@ -1,3 +1,4 @@
+import { useState } from 'react';
 
 interface MobileSettingsProps {
   userEmail: string;
@@ -8,6 +9,7 @@ interface MobileSettingsProps {
 }
 
 export default function MobileSettings({ userEmail, onBack, onLogout, darkMode, onToggleDarkMode }: MobileSettingsProps) {
+  const [message, setMessage] = useState('');
 
   const theme = {
     bg: darkMode ? '#1a1a2e' : '#FFF8E1',

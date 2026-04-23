@@ -3,19 +3,9 @@ export interface User {
   id: number;
   email: string;
   username: string;
+  profile_picture?: string;
   is_active: boolean;
   created_at: string;
-}
-
-export interface UserCreate {
-  email: string;
-  username: string;
-  password: string;
-}
-
-export interface UserLogin {
-  email: string;
-  password: string;
 }
 
 export interface AuthToken {

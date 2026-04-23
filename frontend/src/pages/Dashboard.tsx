@@ -1411,11 +1411,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
                   onClick={() => { setShowFlashcards(false); handleGenerateFlashcards(true); }} 
-<<<<<<< HEAD
                   style={{ background: darkMode ? '#3f3f5a' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}
-=======
-                  style={{ background: darkMode ? '#3C3836' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}
->>>>>>> parent of 471c1a2 (Add flashcard study mode with know/learning tracking, shuffle, and results screen)
                   title="Generate new flashcards"
                 >
                   🔄 Regenerate
