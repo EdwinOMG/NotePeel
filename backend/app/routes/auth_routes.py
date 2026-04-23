@@ -28,7 +28,10 @@ def google_login(request: GoogleAuthRequest, db: Session = Depends(get_db)):
             google_requests.Request(),
             settings.google_client_id
         )
-    except ValueError:
+    except ValueError as e:
+        print(f"[Google OAuth] Verification failed: {e}")
+        print(f"[Google OAuth] Client ID being used: {settings.google_client_id[:20]}...")
+        print(f"[Google OAuth] Credential (first 20): {request.credential[:20]}...")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google token"
