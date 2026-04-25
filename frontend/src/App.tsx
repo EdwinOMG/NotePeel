@@ -12,6 +12,8 @@ import MobileNoteViewer from './pages/MobileNoteViewer';
 import MobileSettings from './pages/MobileSettings';
 import InstallPrompt from './pages/InstallPrompt';
 import DesktopInstallBanner from './pages/DesktopInstallBanner';
+import { UsageBanner } from './components/UsageBanner';
+import { FeatureGate } from './components/FeatureGate';
 
 type Page = 
   | { type: 'login' }
@@ -29,6 +31,7 @@ function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const isMobile = useIsMobile();
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -54,11 +57,12 @@ function App() {
     }
   }, []);
 
-  const handleLogin = (token: string, email: string) => {
-    localStorage.setItem('token', token);
+  const handleLogin = (newToken: string, email: string) => {
+    localStorage.setItem('token', newToken);
     localStorage.setItem('userEmail', email);
     setIsAuthenticated(true);
     setUserEmail(email);
+    setToken(newToken);
     setCurrentPage({ type: 'notebooks' });
   };
 
@@ -67,6 +71,7 @@ function App() {
     localStorage.removeItem('userEmail');
     setIsAuthenticated(false);
     setUserEmail('');
+    setToken(null);
     setCurrentPage({ type: 'login' });
   };
 
@@ -189,12 +194,16 @@ function App() {
   // ─── DESKTOP ROUTING (unchanged) ─────────────────────────────
   
   // Wrap desktop pages with the install banner
-  const withBanner = (page: React.ReactNode) => (
-    <>
-      <DesktopInstallBanner />
-      {page}
-    </>
-  );
+ const withBanner = (page: React.ReactNode) => (
+  <>
+    <DesktopInstallBanner />
+    {/* Usage banner sits just below the install banner */}
+    <div style={{ padding: '0 32px' }}>
+      <UsageBanner token={token} darkMode={darkMode} />
+    </div>
+    {page}
+  </>
+);
 
   switch (currentPage.type) {
     case 'notebooks':

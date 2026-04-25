@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { notesAPI } from '../services/api';
 import type { Note, NoteWithImage, Categories } from '../types';
+import { UsageBanner } from '../components/UsageBanner';
+import { FeatureGate } from '../components/FeatureGate';
 
 interface DashboardProps {
   userEmail: string;
@@ -64,6 +66,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Token for usage hooks — read once from localStorage (stable reference)
+  const token = localStorage.getItem('token');
+
   // Theme colors
   const theme = {
     bg: darkMode ? '#1a1a2e' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
@@ -84,7 +89,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     loadNotes();
   }, []);
 
-  // Load initial note if provided (when coming from notebook view)
   useEffect(() => {
     if (initialNoteId && !loading) {
       loadInitialNote();
@@ -116,7 +120,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Update word/char count
   const updateCounts = () => {
     if (editorRef.current) {
       const text = editorRef.current.innerText || '';
@@ -125,7 +128,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     }
   };
 
-  // Search with debounce
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredNotes(notes);
@@ -155,7 +157,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       const data = await notesAPI.getAll();
       setNotes(data);
       setFilteredNotes(data);
-      // Load categories
       try {
         const cats = await notesAPI.getCategories();
         setCategories(cats);
@@ -175,7 +176,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       if (selectedNote?.id === noteId) {
         setSelectedNote({ ...selectedNote, subject });
       }
-      // Refresh categories
       const cats = await notesAPI.getCategories();
       setCategories(cats);
       setFolderMenuNote(null);
@@ -215,7 +215,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setSelectedNote(fullNote);
       if (editorRef.current) {
         const content = fullNote.structured_text || fullNote.raw_text || '';
-        // Check if content is already HTML
         if (content.includes('<') && content.includes('>')) {
           editorRef.current.innerHTML = content;
         } else {
@@ -237,7 +236,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   const saveNote = async () => {
     if (!selectedNote || !editorRef.current) return;
-
     try {
       const text = editorRef.current.innerHTML;
       await notesAPI.update(selectedNote.id, { structured_text: text });
@@ -251,7 +249,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   const deleteNote = async (noteId: number) => {
     if (!window.confirm('Delete this note?')) return;
-
     try {
       await notesAPI.delete(noteId);
       setNotes(notes.filter(n => n.id !== noteId));
@@ -286,13 +283,11 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   const exportToPDF = () => {
     if (!editorRef.current) return;
-    
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       setMessage('Error: Please allow popups to export PDF');
       return;
     }
-    
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -320,7 +315,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   const exportToTXT = () => {
     if (!editorRef.current) return;
-    
     const text = editorRef.current.innerText;
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -331,7 +325,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
     setMessage('📄 Exported to TXT!');
     setTimeout(() => setMessage(''), 3000);
     setActiveMenu(null);
@@ -339,7 +332,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   const exportToHTML = () => {
     if (!editorRef.current) return;
-    
     const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -354,7 +346,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   <div>${editorRef.current.innerHTML}</div>
 </body>
 </html>`;
-    
     const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -364,7 +355,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
     setMessage('🌐 Exported to HTML!');
     setTimeout(() => setMessage(''), 3000);
     setActiveMenu(null);
@@ -375,7 +365,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
       const parentEl = selection.anchorNode?.parentElement;
       const bgColor = parentEl?.style?.backgroundColor;
-      
       if (bgColor && bgColor !== 'transparent' && bgColor !== 'rgba(0, 0, 0, 0)') {
         execCommand('hiliteColor', 'transparent');
       } else {
@@ -384,7 +373,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     }
   };
 
-  // Save note title
   const saveTitle = async () => {
     if (!selectedNote || !editTitle.trim()) return;
     try {
@@ -399,7 +387,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     }
   };
 
-  // Save note metadata (subject, topic, tags)
   const saveNoteMetadata = async () => {
     if (!selectedNote) return;
     try {
@@ -410,7 +397,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         topic: editTopic,
         tags: editTags
       });
-      // Update local state
       setSelectedNote({ ...selectedNote, title: editTitle, subject: editSubject, topic: editTopic, tags: editTags });
       setNotes(notes.map(n => n.id === selectedNote.id ? { ...n, title: editTitle, subject: editSubject, topic: editTopic, tags: editTags } : n));
       setMessage('Note info saved!');
@@ -421,7 +407,11 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     }
   };
 
-  // AI Feature handlers
+  // ── AI handlers ─────────────────────────────────────────────────────────────
+  // All three handlers use the same pattern:
+  //   - catch shows err.message directly (the backend writes user-friendly text for 429/403)
+  //   - no special-case needed — "Daily token budget reached (...)" comes straight from the API
+
   const handleGenerateFlashcards = async (regenerate: boolean = false) => {
     if (!selectedNote) return;
     setGeneratingFlashcards(true);
@@ -435,7 +425,10 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setShowFlashcards(true);
       setMessage('');
     } catch (err) {
-      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to generate flashcards'));
+      const msg = err instanceof Error ? err.message : 'Failed to generate flashcards';
+      setMessage('⚠️ ' + msg);
+      // Clear after longer delay so user can read limit messages
+      setTimeout(() => setMessage(''), 6000);
     } finally {
       setGeneratingFlashcards(false);
     }
@@ -451,36 +444,30 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setShowSummary(true);
       setMessage('');
     } catch (err) {
-      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to summarize'));
+      const msg = err instanceof Error ? err.message : 'Failed to summarize';
+      setMessage('⚠️ ' + msg);
+      setTimeout(() => setMessage(''), 6000);
     } finally {
       setGeneratingSummary(false);
     }
   };
 
-  // Extract highlighted text (yellow background) from editor - returns array of individual highlights
   const getHighlightedTexts = (): string[] => {
     if (!editorRef.current) return [];
-    
     const highlightedElements = editorRef.current.querySelectorAll('span[style*="background"]');
     const texts: string[] = [];
-    
     highlightedElements.forEach((el) => {
       const style = (el as HTMLElement).style.backgroundColor;
-      // Check for yellow-ish highlight colors
       if (style && style !== 'transparent' && style !== 'rgba(0, 0, 0, 0)') {
         const text = (el as HTMLElement).innerText.trim();
         if (text && !texts.includes(text)) texts.push(text);
       }
     });
-    
     return texts;
   };
 
-  // Open the highlight picker modal
   const handleExplainClick = async () => {
     const highlights = getHighlightedTexts();
-    
-    // Load cached explanations for this note
     let cached: {id: number; highlighted_text: string; explanation: string; created_at: string}[] = [];
     if (selectedNote?.id) {
       try {
@@ -490,27 +477,21 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         setCachedExplanations([]);
       }
     }
-    
-    // Combine current highlights with any cached explanations (for highlights that may have been removed)
     const cachedTexts = cached.map(c => c.highlighted_text);
     const allHighlights = [...new Set([...highlights, ...cachedTexts])];
-    
     if (allHighlights.length === 0) {
       setMessage('Highlight some text first (use the 🖍️ highlight button), then click Explain.');
       setTimeout(() => setMessage(''), 4000);
       return;
     }
-    
     setCurrentHighlights(allHighlights);
     setShowHighlightPicker(true);
   };
 
-  // Explain a specific highlight
   const handleExplainHighlight = async (text: string) => {
     setShowHighlightPicker(false);
     setGeneratingExplanation(true);
     setMessage('Getting AI explanation...');
-    
     try {
       const result = await notesAPI.explain(text, selectedNote?.id);
       setExplanationText(result.explanation);
@@ -521,20 +502,20 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         setTimeout(() => setMessage(''), 2000);
       } else {
         setMessage('');
-        // Refresh cached explanations
         if (selectedNote?.id) {
           const newCached = await notesAPI.getExplanations(selectedNote.id);
           setCachedExplanations(newCached);
         }
       }
     } catch (err) {
-      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to explain'));
+      const msg = err instanceof Error ? err.message : 'Failed to explain';
+      setMessage('⚠️ ' + msg);
+      setTimeout(() => setMessage(''), 6000);
     } finally {
       setGeneratingExplanation(false);
     }
   };
 
-  // Legacy function for backward compatibility - now opens picker
   const handleExplain = handleExplainClick;
 
   const menuItemStyle: React.CSSProperties = {
@@ -560,7 +541,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Tab - indent
     if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -575,46 +555,14 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         }
       }
     }
-    // Ctrl+S - Save
-    if (e.ctrlKey && e.key === 's') {
-      e.preventDefault();
-      saveNote();
-    }
-    // Ctrl+B - Bold
-    if (e.ctrlKey && e.key === 'b') {
-      e.preventDefault();
-      execCommand('bold');
-    }
-    // Ctrl+I - Italic
-    if (e.ctrlKey && e.key === 'i') {
-      e.preventDefault();
-      execCommand('italic');
-    }
-    // Ctrl+U - Underline
-    if (e.ctrlKey && e.key === 'u') {
-      e.preventDefault();
-      execCommand('underline');
-    }
-    // Ctrl+H - Highlight
-    if (e.ctrlKey && e.key === 'h') {
-      e.preventDefault();
-      handleHighlight();
-    }
-    // Ctrl+Enter - Page break
-    if (e.ctrlKey && e.key === 'Enter') {
-      e.preventDefault();
-      insertPageBreak();
-    }
-    // Ctrl+Shift+L - Bullet list
-    if (e.ctrlKey && e.shiftKey && e.key === 'L') {
-      e.preventDefault();
-      execCommand('insertUnorderedList');
-    }
-    // Ctrl+Shift+N - Numbered list
-    if (e.ctrlKey && e.shiftKey && e.key === 'N') {
-      e.preventDefault();
-      execCommand('insertOrderedList');
-    }
+    if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveNote(); }
+    if (e.ctrlKey && e.key === 'b') { e.preventDefault(); execCommand('bold'); }
+    if (e.ctrlKey && e.key === 'i') { e.preventDefault(); execCommand('italic'); }
+    if (e.ctrlKey && e.key === 'u') { e.preventDefault(); execCommand('underline'); }
+    if (e.ctrlKey && e.key === 'h') { e.preventDefault(); handleHighlight(); }
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); insertPageBreak(); }
+    if (e.ctrlKey && e.shiftKey && e.key === 'L') { e.preventDefault(); execCommand('insertUnorderedList'); }
+    if (e.ctrlKey && e.shiftKey && e.key === 'N') { e.preventDefault(); execCommand('insertOrderedList'); }
   };
 
   return (
@@ -654,14 +602,8 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <button
                 onClick={() => { setEditTitle(selectedNote.title || ''); setShowRenameModal(true); }}
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '2px 4px',
-                  fontSize: '12px',
-                  color: darkMode ? '#a1a1aa' : '#5D4037',
-                  borderRadius: '3px',
-                  opacity: 0.7,
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+                  fontSize: '12px', color: darkMode ? '#a1a1aa' : '#5D4037', borderRadius: '3px', opacity: 0.7,
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.3)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
@@ -681,6 +623,11 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             Logout
           </button>
         </div>
+      </div>
+
+      {/* ── Usage Banner ── sits just below the title bar, above the menu */}
+      <div style={{ padding: '6px 15px 0', background: darkMode ? '#2d2d4a' : '#fff' }}>
+        <UsageBanner token={token} darkMode={darkMode} />
       </div>
 
       {/* Menu Bar */}
@@ -737,17 +684,14 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           {activeMenu === 'edit' && (
             <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '200px', zIndex: 1000 }}>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('undo'); setActiveMenu(null); }}>
-                <span>↩️ Undo</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Z</span>
+                <span>↩️ Undo</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Z</span>
               </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('redo'); setActiveMenu(null); }}>
-                <span>↪️ Redo</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Y</span>
+                <span>↪️ Redo</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Y</span>
               </div>
               <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('selectAll'); setActiveMenu(null); }}>
-                <span>🔲 Select All</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+A</span>
+                <span>🔲 Select All</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+A</span>
               </div>
             </div>
           )}
@@ -764,20 +708,17 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           {activeMenu === 'insert' && (
             <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { insertPageBreak(); setActiveMenu(null); }}>
-                <span>📃 Page Break</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Enter</span>
+                <span>📃 Page Break</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Enter</span>
               </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertHorizontalRule'); setActiveMenu(null); }}>
                 <span>➖ Horizontal Line</span>
               </div>
               <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertUnorderedList'); setActiveMenu(null); }}>
-                <span>• Bullet List</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+L</span>
+                <span>• Bullet List</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+L</span>
               </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('insertOrderedList'); setActiveMenu(null); }}>
-                <span>1. Numbered List</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+N</span>
+                <span>1. Numbered List</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+Shift+N</span>
               </div>
             </div>
           )}
@@ -806,7 +747,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
-        {/* AI Menu */}
+        {/* ── AI Menu ── */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'ai' ? null : 'ai'); }}
@@ -816,19 +757,44 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           </button>
           {activeMenu === 'ai' && (
             <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
-              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}>
-                <span>🃏 Generate Flashcards</span>
-                {generatingFlashcards && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
-              </div>
-              <div style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}>
+
+              {/* Flashcards — gated for free users */}
+              <FeatureGate feature="flashcards" token={token} darkMode={darkMode}>
+                <div
+                  style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  onClick={() => { if (selectedNote) { handleGenerateFlashcards(); setActiveMenu(null); } }}
+                >
+                  <span>🃏 Generate Flashcards</span>
+                  {generatingFlashcards && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
+                </div>
+              </FeatureGate>
+
+              {/* Summarize — available on free */}
+              <div
+                style={{...menuItemStyle, color: selectedNote ? theme.text : theme.textSecondary}}
+                onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => { if (selectedNote) { handleSummarize(); setActiveMenu(null); } }}
+              >
                 <span>📋 Summarize Note</span>
                 {generatingSummary && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
               </div>
+
               <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0' }} />
-              <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { handleExplain(); setActiveMenu(null); }}>
+
+              {/* Explain — available on free */}
+              <div
+                style={{...menuItemStyle, color: theme.text}}
+                onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => { handleExplain(); setActiveMenu(null); }}
+              >
                 <span>💡 Explain Selection</span>
                 {generatingExplanation && <span style={{ fontSize: '11px', color: theme.textSecondary }}>...</span>}
               </div>
+
             </div>
           )}
         </div>
@@ -844,16 +810,13 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           {activeMenu === 'format' && (
             <div style={{ position: 'absolute', top: '100%', left: 0, background: theme.menuBg, border: `1px solid ${theme.border}`, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: '220px', zIndex: 1000 }}>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('bold'); setActiveMenu(null); }}>
-                <span><b>B</b> Bold</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+B</span>
+                <span><b>B</b> Bold</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+B</span>
               </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('italic'); setActiveMenu(null); }}>
-                <span><i>I</i> Italic</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+I</span>
+                <span><i>I</i> Italic</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+I</span>
               </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('underline'); setActiveMenu(null); }}>
-                <span><u>U</u> Underline</span>
-                <span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+U</span>
+                <span><u>U</u> Underline</span><span style={{ color: theme.textSecondary, fontSize: '11px' }}>Ctrl+U</span>
               </div>
               <div style={{...menuItemStyle, color: theme.text}} onMouseEnter={(e) => (e.currentTarget.style.background = theme.menuHover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')} onClick={() => { execCommand('strikeThrough'); setActiveMenu(null); }}>
                 <span><s>S</s> Strikethrough</span>
@@ -887,25 +850,12 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           )}
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handleFileSelect}
-          style={{ display: 'none' }}
-        />
+        <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileSelect} style={{ display: 'none' }} />
       </div>
 
       {/* Toolbar */}
       <div style={{ background: theme.toolbarBg, borderBottom: `1px solid ${theme.border}`, padding: '8px 15px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-        {/* Note Type Selector */}
-        <select
-          value={noteType}
-          onChange={(e) => setNoteType(e.target.value as 'default' | 'lecture' | 'meeting')}
-          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', background: darkMode ? '#3f3f5a' : '#FFF8E1', color: theme.text }}
-          title="Note type for Gemini AI"
-        >
+        <select value={noteType} onChange={(e) => setNoteType(e.target.value as 'default' | 'lecture' | 'meeting')} style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', background: darkMode ? '#3f3f5a' : '#FFF8E1', color: theme.text }} title="Note type for AI">
           <option value="default">📝 Default</option>
           <option value="lecture">📚 Lecture</option>
           <option value="meeting">📋 Meeting</option>
@@ -913,12 +863,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Font Family */}
-        <select
-          value={fontFamily}
-          onChange={(e) => { setFontFamily(e.target.value); execCommand('fontName', e.target.value); }}
-          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', minWidth: '130px', background: theme.menuBg, color: theme.text }}
-        >
+        <select value={fontFamily} onChange={(e) => { setFontFamily(e.target.value); execCommand('fontName', e.target.value); }} style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', minWidth: '130px', background: theme.menuBg, color: theme.text }}>
           <option value="Georgia">Georgia</option>
           <option value="Arial">Arial</option>
           <option value="Times New Roman">Times New Roman</option>
@@ -928,12 +873,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           <option value="Comic Sans MS">Comic Sans MS</option>
         </select>
 
-        {/* Font Size */}
-        <select
-          value={fontSize}
-          onChange={(e) => { setFontSize(e.target.value); execCommand('fontSize', e.target.value); }}
-          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', width: '65px', background: theme.menuBg, color: theme.text }}
-        >
+        <select value={fontSize} onChange={(e) => { setFontSize(e.target.value); execCommand('fontSize', e.target.value); }} style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', width: '65px', background: theme.menuBg, color: theme.text }}>
           <option value="1">8</option>
           <option value="2">10</option>
           <option value="3">12</option>
@@ -943,13 +883,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           <option value="7">36</option>
         </select>
 
-        {/* Line Spacing */}
-        <select
-          value={lineSpacing}
-          onChange={(e) => setLineSpacing(e.target.value)}
-          style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', width: '75px', background: theme.menuBg, color: theme.text }}
-          title="Line Spacing"
-        >
+        <select value={lineSpacing} onChange={(e) => setLineSpacing(e.target.value)} style={{ padding: '6px 10px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '13px', width: '75px', background: theme.menuBg, color: theme.text }} title="Line Spacing">
           <option value="1">1.0</option>
           <option value="1.6">1.5</option>
           <option value="2">2.0</option>
@@ -957,7 +891,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Text Formatting */}
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('bold')} title="Bold (Ctrl+B)"><b>B</b></button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('italic')} title="Italic (Ctrl+I)"><i>I</i></button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('underline')} title="Underline (Ctrl+U)"><u>U</u></button>
@@ -965,63 +898,39 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Text Color */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', marginRight: '4px', color: theme.text }}>A</span>
-          <input
-            type="color"
-            onChange={(e) => execCommand('foreColor', e.target.value)}
-            style={{ width: '28px', height: '28px', border: `1px solid ${theme.border}`, borderRadius: '4px', cursor: 'pointer', padding: '2px' }}
-            title="Text Color"
-          />
+          <input type="color" onChange={(e) => execCommand('foreColor', e.target.value)} style={{ width: '28px', height: '28px', border: `1px solid ${theme.border}`, borderRadius: '4px', cursor: 'pointer', padding: '2px' }} title="Text Color" />
         </div>
 
-        {/* Highlight Button + Color Picker */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '2px' }}>
-          <button
-            onClick={handleHighlight}
-            style={{ ...toolbarBtnStyle, background: highlightColor, fontWeight: 'bold', minWidth: '28px', border: `1px solid ${theme.border}` }}
-            title="Highlight (Ctrl+H)"
-          >
-            H
-          </button>
-          <input
-            type="color"
-            value={highlightColor}
-            onChange={(e) => setHighlightColor(e.target.value)}
-            style={{ width: '20px', height: '28px', border: `1px solid ${theme.border}`, borderRadius: '4px', cursor: 'pointer', padding: '1px' }}
-            title="Change Highlight Color"
-          />
+          <button onClick={handleHighlight} style={{ ...toolbarBtnStyle, background: highlightColor, fontWeight: 'bold', minWidth: '28px', border: `1px solid ${theme.border}` }} title="Highlight (Ctrl+H)">H</button>
+          <input type="color" value={highlightColor} onChange={(e) => setHighlightColor(e.target.value)} style={{ width: '20px', height: '28px', border: `1px solid ${theme.border}`, borderRadius: '4px', cursor: 'pointer', padding: '1px' }} title="Change Highlight Color" />
         </div>
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Alignment */}
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('justifyLeft')} title="Align Left">⬅</button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('justifyCenter')} title="Align Center">⬌</button>
         <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('justifyRight')} title="Align Right">➡</button>
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Lists */}
-        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('insertUnorderedList')} title="Bullet List (Ctrl+Shift+L)">•</button>
-        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('insertOrderedList')} title="Numbered List (Ctrl+Shift+N)">1.</button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('insertUnorderedList')} title="Bullet List">•</button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('insertOrderedList')} title="Numbered List">1.</button>
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Indent */}
-        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('outdent')} title="Decrease Indent (Shift+Tab)">⇤</button>
-        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('indent')} title="Increase Indent (Tab)">⇥</button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('outdent')} title="Decrease Indent">⇤</button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('indent')} title="Increase Indent">⇥</button>
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Undo/Redo */}
-        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('undo')} title="Undo (Ctrl+Z)">↩</button>
-        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('redo')} title="Redo (Ctrl+Y)">↪</button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('undo')} title="Undo">↩</button>
+        <button style={{...toolbarBtnStyle, background: theme.menuBg, color: theme.text, border: `1px solid ${theme.border}`}} onClick={() => execCommand('redo')} title="Redo">↪</button>
 
         <div style={{ width: '1px', height: '24px', background: theme.border, margin: '0 4px' }} />
 
-        {/* Zoom Controls */}
         <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ padding: '6px 8px', border: `1px solid ${theme.border}`, borderRadius: '4px', fontSize: '12px', background: theme.menuBg, color: theme.text, width: '70px' }} title="Zoom">
           <option value={50}>50%</option>
           <option value={75}>75%</option>
@@ -1034,19 +943,14 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
         <div style={{ flex: 1 }} />
 
-        {/* Save Button */}
         <button
           onClick={saveNote}
           disabled={!selectedNote}
           style={{
             padding: '6px 16px',
             background: selectedNote ? 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)' : '#ccc',
-            color: '#5D4037',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: selectedNote ? 'pointer' : 'not-allowed',
-            fontSize: '13px',
-            fontWeight: 'bold'
+            color: '#5D4037', border: 'none', borderRadius: '4px',
+            cursor: selectedNote ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 'bold'
           }}
         >
           💾 Save
@@ -1057,12 +961,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       {message && (
         <div style={{
           padding: '8px 15px',
-          background: message.includes('Error') ? '#ffebee' : (darkMode ? '#3f3f5a' : '#FFF8E1'),
-          color: message.includes('Error') ? '#c62828' : theme.text,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: '13px'
+          background: message.includes('Error') || message.includes('⚠️') ? '#ffebee' : (darkMode ? '#3f3f5a' : '#FFF8E1'),
+          color: message.includes('Error') || message.includes('⚠️') ? '#c62828' : theme.text,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px'
         }}>
           <span>{uploading ? '🍌 Peeling...' : message}</span>
           <button onClick={() => setMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.text }}>✕</button>
@@ -1071,14 +972,13 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Notes Panel (toggleable) */}
+        {/* Notes Panel */}
         {showNotesPanel && (
           <div style={{ width: '250px', background: theme.cardBg, borderRight: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '15px', borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', color: theme.text, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>📁 Your Notes ({notes.length})</span>
               <button onClick={() => setShowNotesPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: theme.text }}>✕</button>
             </div>
-            {/* Search Bar */}
             <div style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
               <div style={{ position: 'relative' }}>
                 <input
@@ -1086,63 +986,26 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                   placeholder="Search notes..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 32px 8px 12px',
-                    border: '1px solid #ddd',
-                    borderRadius: '20px',
-                    fontSize: '13px',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    background: '#f9f9f9',
-                  }}
+                  style={{ width: '100%', padding: '8px 32px 8px 12px', border: '1px solid #ddd', borderRadius: '20px', fontSize: '13px', outline: 'none', boxSizing: 'border-box', background: '#f9f9f9' }}
                 />
                 {searchQuery ? (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#888' }}
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => setSearchQuery('')} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#888' }}>✕</button>
                 ) : (
-                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#aaa', pointerEvents: 'none' }}>
-                    🔍
-                  </span>
+                  <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#aaa', pointerEvents: 'none' }}>🔍</span>
                 )}
               </div>
               {isSearching && <div style={{ fontSize: '11px', color: '#888', marginTop: '4px', textAlign: 'center' }}>Searching...</div>}
             </div>
 
-            {/* Category Filters */}
             {(categories.subjects.length > 0 || categories.tags.length > 0) && (
               <div style={{ padding: '8px 10px', borderBottom: '1px solid #eee', maxHeight: '140px', overflowY: 'auto' }}>
                 {categories.subjects.length > 0 && (
                   <div style={{ marginBottom: '6px' }}>
                     <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '4px' }}>📁 Folders</div>
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                      <button
-                        onClick={() => { setActiveSubjectFilter(null); setActiveTagFilter(null); }}
-                        style={{
-                          fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #ddd', cursor: 'pointer',
-                          background: !activeSubjectFilter ? '#FF9800' : 'white',
-                          color: !activeSubjectFilter ? 'white' : '#666',
-                        }}
-                      >
-                        All
-                      </button>
+                      <button onClick={() => { setActiveSubjectFilter(null); setActiveTagFilter(null); }} style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #ddd', cursor: 'pointer', background: !activeSubjectFilter ? '#FF9800' : 'white', color: !activeSubjectFilter ? 'white' : '#666' }}>All</button>
                       {categories.subjects.map(sub => (
-                        <button
-                          key={sub}
-                          onClick={() => { setActiveSubjectFilter(activeSubjectFilter === sub ? null : sub); setSearchQuery(''); }}
-                          style={{
-                            fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #FFE082', cursor: 'pointer',
-                            background: activeSubjectFilter === sub ? '#FFC107' : '#FFF8E1',
-                            color: activeSubjectFilter === sub ? '#5D4037' : '#F57F17',
-                            fontWeight: activeSubjectFilter === sub ? 'bold' : 'normal',
-                          }}
-                        >
-                          📁 {sub}
-                        </button>
+                        <button key={sub} onClick={() => { setActiveSubjectFilter(activeSubjectFilter === sub ? null : sub); setSearchQuery(''); }} style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #FFE082', cursor: 'pointer', background: activeSubjectFilter === sub ? '#FFC107' : '#FFF8E1', color: activeSubjectFilter === sub ? '#5D4037' : '#F57F17', fontWeight: activeSubjectFilter === sub ? 'bold' : 'normal' }}>📁 {sub}</button>
                       ))}
                     </div>
                   </div>
@@ -1152,18 +1015,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                     <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '4px' }}>Tags</div>
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                       {categories.tags.map(tag => (
-                        <button
-                          key={tag}
-                          onClick={() => { setActiveTagFilter(activeTagFilter === tag ? null : tag); setSearchQuery(''); }}
-                          style={{
-                            fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9', cursor: 'pointer',
-                            background: activeTagFilter === tag ? '#1565C0' : '#E3F2FD',
-                            color: activeTagFilter === tag ? 'white' : '#1565C0',
-                            fontWeight: activeTagFilter === tag ? 'bold' : 'normal',
-                          }}
-                        >
-                          {tag}
-                        </button>
+                        <button key={tag} onClick={() => { setActiveTagFilter(activeTagFilter === tag ? null : tag); setSearchQuery(''); }} style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9', cursor: 'pointer', background: activeTagFilter === tag ? '#1565C0' : '#E3F2FD', color: activeTagFilter === tag ? 'white' : '#1565C0', fontWeight: activeTagFilter === tag ? 'bold' : 'normal' }}>{tag}</button>
                       ))}
                     </div>
                   </div>
@@ -1178,89 +1030,36 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                 <p style={{ color: theme.textSecondary, fontSize: '13px', padding: '10px' }}>No notes yet. Upload one!</p>
               ) : (
                 filteredNotes.map(note => (
-                  <div
-                    key={note.id}
-                    onClick={() => viewNote(note)}
-                    style={{
-                      padding: '10px',
-                      marginBottom: '6px',
-                      background: selectedNote?.id === note.id ? (darkMode ? '#3f3f5a' : '#FFF8E1') : (darkMode ? '#2d2d4a' : '#f9f9f9'),
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      border: selectedNote?.id === note.id ? '1px solid #FFB74D' : `1px solid ${theme.border}`,
-                    }}
-                  >
+                  <div key={note.id} onClick={() => viewNote(note)} style={{ padding: '10px', marginBottom: '6px', background: selectedNote?.id === note.id ? (darkMode ? '#3f3f5a' : '#FFF8E1') : (darkMode ? '#2d2d4a' : '#f9f9f9'), borderRadius: '6px', cursor: 'pointer', border: selectedNote?.id === note.id ? '1px solid #FFB74D' : `1px solid ${theme.border}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ overflow: 'hidden', flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: '500', color: theme.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {note.title || 'Untitled'}
-                        </div>
-                        <div style={{ fontSize: '11px', color: theme.textSecondary, marginTop: '2px' }}>
-                          {new Date(note.created_at).toLocaleDateString()}
-                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: '500', color: theme.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.title || 'Untitled'}</div>
+                        <div style={{ fontSize: '11px', color: theme.textSecondary, marginTop: '2px' }}>{new Date(note.created_at).toLocaleDateString()}</div>
                         {(note.subject || note.tags) && (
                           <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
-                            {note.subject && (
-                              <span style={{ fontSize: '10px', background: '#FFF8E1', color: '#F57F17', padding: '1px 6px', borderRadius: '10px', border: '1px solid #FFE082' }}>
-                                📁 {note.subject}
-                              </span>
-                            )}
+                            {note.subject && <span style={{ fontSize: '10px', background: '#FFF8E1', color: '#F57F17', padding: '1px 6px', borderRadius: '10px', border: '1px solid #FFE082' }}>📁 {note.subject}</span>}
                             {note.tags && note.tags.split(',').slice(0, 2).map((tag, i) => (
-                              <span key={i} style={{ fontSize: '10px', background: '#E3F2FD', color: '#1565C0', padding: '1px 6px', borderRadius: '10px', border: '1px solid #90CAF9' }}>
-                                {tag.trim()}
-                              </span>
+                              <span key={i} style={{ fontSize: '10px', background: '#E3F2FD', color: '#1565C0', padding: '1px 6px', borderRadius: '10px', border: '1px solid #90CAF9' }}>{tag.trim()}</span>
                             ))}
                           </div>
                         )}
                       </div>
                       <div style={{ position: 'relative', marginLeft: '4px' }} onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setFolderMenuNote(folderMenuNote === note.id ? null : note.id); }}
-                          title="Move to folder"
-                          style={{ background: '#FFF8E1', color: '#F57F17', border: '1px solid #FFE082', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px' }}
-                        >
-                          📁
-                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setFolderMenuNote(folderMenuNote === note.id ? null : note.id); }} style={{ background: '#FFF8E1', color: '#F57F17', border: '1px solid #FFE082', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px' }}>📁</button>
                         {folderMenuNote === note.id && (
                           <div style={{ position: 'absolute', right: 0, top: '100%', background: 'white', border: '1px solid #ddd', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 100, minWidth: '140px', padding: '4px 0' }}>
                             <div style={{ fontSize: '10px', color: '#888', padding: '4px 10px', borderBottom: '1px solid #eee' }}>Move to folder</div>
-                            <div
-                              onClick={() => assignFolder(note.id, '')}
-                              style={{ padding: '6px 10px', fontSize: '12px', cursor: 'pointer', color: '#666' }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
-                            >
-                              — None
-                            </div>
+                            <div onClick={() => assignFolder(note.id, '')} style={{ padding: '6px 10px', fontSize: '12px', cursor: 'pointer', color: '#666' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f5')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}>— None</div>
                             {categories.subjects.map(sub => (
-                              <div
-                                key={sub}
-                                onClick={() => assignFolder(note.id, sub)}
-                                style={{ padding: '6px 10px', fontSize: '12px', cursor: 'pointer', fontWeight: note.subject === sub ? 'bold' : 'normal', color: '#333' }}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = '#FFF8E1')}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}
-                              >
-                                📁 {sub}
-                              </div>
+                              <div key={sub} onClick={() => assignFolder(note.id, sub)} style={{ padding: '6px 10px', fontSize: '12px', cursor: 'pointer', fontWeight: note.subject === sub ? 'bold' : 'normal', color: '#333' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#FFF8E1')} onMouseLeave={(e) => (e.currentTarget.style.background = 'white')}>📁 {sub}</div>
                             ))}
                             <div style={{ borderTop: '1px solid #eee', padding: '4px 10px' }}>
-                              <input
-                                type="text"
-                                placeholder="New folder..."
-                                style={{ width: '100%', fontSize: '11px', padding: '3px 6px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }}
-                                onKeyDown={(e) => { if (e.key === 'Enter' && e.currentTarget.value.trim()) assignFolder(note.id, e.currentTarget.value.trim()); }}
-                                onClick={(e) => e.stopPropagation()}
-                              />
+                              <input type="text" placeholder="New folder..." style={{ width: '100%', fontSize: '11px', padding: '3px 6px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }} onKeyDown={(e) => { if (e.key === 'Enter' && e.currentTarget.value.trim()) assignFolder(note.id, e.currentTarget.value.trim()); }} onClick={(e) => e.stopPropagation()} />
                             </div>
                           </div>
                         )}
                       </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }}
-                        style={{ background: '#ff5252', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', marginLeft: '4px' }}
-                      >
-                        ✕
-                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} style={{ background: '#ff5252', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', marginLeft: '4px' }}>✕</button>
                     </div>
                   </div>
                 ))
@@ -1269,7 +1068,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           </div>
         )}
 
-        {/* Image Panel (toggleable) */}
+        {/* Image Panel */}
         {showImage && selectedNote && (
           <div style={{ width: '350px', background: darkMode ? '#2d2d4a' : '#f5f5f5', borderRight: `1px solid ${theme.border}`, padding: '20px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -1277,11 +1076,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <button onClick={() => setShowImage(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: theme.text }}>✕</button>
             </div>
             {selectedNote.image_url && (
-              <img
-                src={selectedNote.image_url}
-                alt="Note"
-                style={{ maxWidth: '100%', borderRadius: '8px', border: `1px solid ${theme.border}` }}
-              />
+              <img src={selectedNote.image_url} alt="Note" style={{ maxWidth: '100%', borderRadius: '8px', border: `1px solid ${theme.border}` }} />
             )}
           </div>
         )}
@@ -1293,74 +1088,29 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <h3 style={{ margin: 0, fontSize: '14px', color: '#5D4037' }}>🏷️ Note Info</h3>
               <button onClick={() => setShowNoteInfo(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✕</button>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>📁 Folder</label>
-              <input
-                type="text"
-                value={editSubject}
-                onChange={(e) => setEditSubject(e.target.value)}
-                placeholder="e.g. Biology, Math..."
-                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-              />
+              <input type="text" value={editSubject} onChange={(e) => setEditSubject(e.target.value)} placeholder="e.g. Biology, Math..." style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Topic</label>
-              <input
-                type="text"
-                value={editTopic}
-                onChange={(e) => setEditTopic(e.target.value)}
-                placeholder="e.g. Cell Division..."
-                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-              />
+              <input type="text" value={editTopic} onChange={(e) => setEditTopic(e.target.value)} placeholder="e.g. Cell Division..." style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
             </div>
-
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Tags (comma-separated)</label>
-              <input
-                type="text"
-                value={editTags}
-                onChange={(e) => setEditTags(e.target.value)}
-                placeholder="e.g. midterm, chapter3..."
-                style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-              />
+              <input type="text" value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="e.g. midterm, chapter3..." style={{ width: '100%', padding: '6px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
             </div>
-
-            <button
-              onClick={saveNoteMetadata}
-              style={{
-                width: '100%',
-                padding: '8px',
-                background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                color: '#5D4037',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 'bold',
-              }}
-            >
-              Save Info
-            </button>
-
-            {/* Quick info display */}
+            <button onClick={saveNoteMetadata} style={{ width: '100%', padding: '8px', background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', color: '#5D4037', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>Save Info</button>
             <div style={{ marginTop: '20px', padding: '12px', background: '#f9f9f9', borderRadius: '8px', fontSize: '12px', color: '#666' }}>
               <div style={{ marginBottom: '4px' }}><strong>Created:</strong> {new Date(selectedNote.created_at).toLocaleString()}</div>
               <div style={{ marginBottom: '4px' }}><strong>Status:</strong> {selectedNote.status}</div>
               {selectedNote.image_filename && <div><strong>File:</strong> {selectedNote.image_filename}</div>}
             </div>
-
-            {/* Tag chips preview */}
             {editTags && (
               <div style={{ marginTop: '12px' }}>
                 <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', marginBottom: '6px' }}>Tags Preview</div>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {editTags.split(',').map((tag, i) => (
-                    tag.trim() && <span key={i} style={{ fontSize: '11px', background: '#E3F2FD', color: '#1565C0', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9' }}>
-                      {tag.trim()}
-                    </span>
-                  ))}
+                  {editTags.split(',').map((tag, i) => tag.trim() && <span key={i} style={{ fontSize: '11px', background: '#E3F2FD', color: '#1565C0', padding: '2px 8px', borderRadius: '10px', border: '1px solid #90CAF9' }}>{tag.trim()}</span>)}
                 </div>
               </div>
             )}
@@ -1369,31 +1119,11 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
         {/* Editor Area */}
         <div style={{ flex: 1, background: darkMode ? '#1a1a2e' : '#e0e0e0', padding: '30px', overflowY: 'auto' }}>
-          <div style={{
-            maxWidth: '850px',
-            margin: '0 auto',
-            background: darkMode ? '#252542' : 'white',
-            boxShadow: darkMode ? '0 2px 10px rgba(0,0,0,0.3)' : '0 2px 10px rgba(0,0,0,0.1)',
-            minHeight: '1100px',
-            transform: `scale(${zoom / 100})`,
-            transformOrigin: 'top center',
-          }}>
-            {/* Paper - auto-expanding */}
+          <div style={{ maxWidth: '850px', margin: '0 auto', background: darkMode ? '#252542' : 'white', boxShadow: darkMode ? '0 2px 10px rgba(0,0,0,0.3)' : '0 2px 10px rgba(0,0,0,0.1)', minHeight: '1100px', transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }}>
             <div
               ref={editorRef}
               contentEditable
-              style={{
-                padding: '60px 80px',
-                minHeight: '1000px',
-                fontSize: '16px',
-                fontFamily: fontFamily,
-                lineHeight: lineSpacing,
-                outline: 'none',
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word',
-                whiteSpace: 'normal',
-                color: theme.text,
-              }}
+              style={{ padding: '60px 80px', minHeight: '1000px', fontSize: '16px', fontFamily: fontFamily, lineHeight: lineSpacing, outline: 'none', wordWrap: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', color: theme.text }}
               onKeyDown={handleKeyDown}
               onInput={updateCounts}
               suppressContentEditableWarning
@@ -1409,70 +1139,22 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ margin: 0, color: theme.text, fontSize: '18px' }}>🃏 {flashcardTitle}</h2>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button 
-                  onClick={() => { setShowFlashcards(false); handleGenerateFlashcards(true); }} 
-                  style={{ background: darkMode ? '#3f3f5a' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}
-                  title="Generate new flashcards"
-                >
-                  🔄 Regenerate
-                </button>
+                <button onClick={() => { setShowFlashcards(false); handleGenerateFlashcards(true); }} style={{ background: darkMode ? '#3f3f5a' : '#FFF3E0', border: '1px solid #FFB74D', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', color: '#E65100' }}>🔄 Regenerate</button>
                 <button onClick={() => setShowFlashcards(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
               </div>
             </div>
-
-            {/* Progress bar */}
             <div style={{ display: 'flex', gap: '3px', marginBottom: '20px' }}>
-              {flashcards.map((_, i) => (
-                <div key={i} style={{ flex: 1, height: '4px', borderRadius: '2px', background: i <= flashcardIndex ? '#FF9800' : '#eee', transition: 'background 0.3s' }} />
-              ))}
+              {flashcards.map((_, i) => <div key={i} style={{ flex: 1, height: '4px', borderRadius: '2px', background: i <= flashcardIndex ? '#FF9800' : '#eee', transition: 'background 0.3s' }} />)}
             </div>
-
-            {/* Card */}
-            <div
-              onClick={() => setFlashcardFlipped(!flashcardFlipped)}
-              style={{
-                minHeight: '200px',
-                background: flashcardFlipped ? 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)' : 'linear-gradient(135deg, #FFF8E1 0%, #FFE082 100%)',
-                borderRadius: '12px',
-                padding: '30px',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                border: '2px solid ' + (flashcardFlipped ? '#A5D6A7' : '#FFB74D'),
-                textAlign: 'center',
-              }}
-            >
-              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#888', marginBottom: '12px' }}>
-                {flashcardFlipped ? 'ANSWER' : 'QUESTION'} — Card {flashcardIndex + 1}/{flashcards.length}
-              </div>
-              <div style={{ fontSize: '18px', lineHeight: '1.6', color: '#333', fontWeight: flashcardFlipped ? 'normal' : '500' }}>
-                {flashcardFlipped ? flashcards[flashcardIndex].answer : flashcards[flashcardIndex].question}
-              </div>
-              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '16px' }}>
-                Click to {flashcardFlipped ? 'see question' : 'reveal answer'}
-              </div>
+            <div onClick={() => setFlashcardFlipped(!flashcardFlipped)} style={{ minHeight: '200px', background: flashcardFlipped ? 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)' : 'linear-gradient(135deg, #FFF8E1 0%, #FFE082 100%)', borderRadius: '12px', padding: '30px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', transition: 'all 0.3s ease', border: '2px solid ' + (flashcardFlipped ? '#A5D6A7' : '#FFB74D'), textAlign: 'center' }}>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#888', marginBottom: '12px' }}>{flashcardFlipped ? 'ANSWER' : 'QUESTION'} — Card {flashcardIndex + 1}/{flashcards.length}</div>
+              <div style={{ fontSize: '18px', lineHeight: '1.6', color: '#333', fontWeight: flashcardFlipped ? 'normal' : '500' }}>{flashcardFlipped ? flashcards[flashcardIndex].answer : flashcards[flashcardIndex].question}</div>
+              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '16px' }}>Click to {flashcardFlipped ? 'see question' : 'reveal answer'}</div>
             </div>
-
-            {/* Navigation */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px', alignItems: 'center' }}>
-              <button
-                onClick={() => { setFlashcardIndex(Math.max(0, flashcardIndex - 1)); setFlashcardFlipped(false); }}
-                disabled={flashcardIndex === 0}
-                style={{ padding: '8px 20px', border: `1px solid ${theme.border}`, borderRadius: '8px', background: flashcardIndex === 0 ? theme.menuHover : theme.menuBg, cursor: flashcardIndex === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', color: theme.text }}
-              >
-                Previous
-              </button>
+              <button onClick={() => { setFlashcardIndex(Math.max(0, flashcardIndex - 1)); setFlashcardFlipped(false); }} disabled={flashcardIndex === 0} style={{ padding: '8px 20px', border: `1px solid ${theme.border}`, borderRadius: '8px', background: flashcardIndex === 0 ? theme.menuHover : theme.menuBg, cursor: flashcardIndex === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', color: theme.text }}>Previous</button>
               <span style={{ color: theme.textSecondary, fontSize: '13px' }}>{flashcardIndex + 1} / {flashcards.length}</span>
-              <button
-                onClick={() => { setFlashcardIndex(Math.min(flashcards.length - 1, flashcardIndex + 1)); setFlashcardFlipped(false); }}
-                disabled={flashcardIndex === flashcards.length - 1}
-                style={{ padding: '8px 20px', border: 'none', borderRadius: '8px', background: flashcardIndex === flashcards.length - 1 ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', color: '#5D4037', cursor: flashcardIndex === flashcards.length - 1 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}
-              >
-                Next
-              </button>
+              <button onClick={() => { setFlashcardIndex(Math.min(flashcards.length - 1, flashcardIndex + 1)); setFlashcardFlipped(false); }} disabled={flashcardIndex === flashcards.length - 1} style={{ padding: '8px 20px', border: 'none', borderRadius: '8px', background: flashcardIndex === flashcards.length - 1 ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', color: '#5D4037', cursor: flashcardIndex === flashcards.length - 1 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Next</button>
             </div>
           </div>
         </div>
@@ -1486,20 +1168,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <h2 style={{ margin: 0, color: '#2E7D32', fontSize: '18px' }}>📋 AI Summary</h2>
               <button onClick={() => setShowSummary(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
             </div>
-            <div style={{ background: darkMode ? '#1e3a2f' : '#E8F5E9', borderRadius: '12px', padding: '24px', lineHeight: '1.8', color: theme.text, fontSize: '15px', whiteSpace: 'pre-wrap' }}>
-              {summaryText}
-            </div>
+            <div style={{ background: darkMode ? '#1e3a2f' : '#E8F5E9', borderRadius: '12px', padding: '24px', lineHeight: '1.8', color: theme.text, fontSize: '15px', whiteSpace: 'pre-wrap' }}>{summaryText}</div>
             <div style={{ marginTop: '16px', textAlign: 'right' }}>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(summaryText);
-                  setMessage('Summary copied to clipboard!');
-                  setTimeout(() => setMessage(''), 2000);
-                }}
-                style={{ padding: '8px 20px', background: darkMode ? '#1e3a2f' : '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', color: '#2E7D32' }}
-              >
-                Copy to Clipboard
-              </button>
+              <button onClick={() => { navigator.clipboard.writeText(summaryText); setMessage('Summary copied!'); setTimeout(() => setMessage(''), 2000); }} style={{ padding: '8px 20px', background: darkMode ? '#1e3a2f' : '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', color: '#2E7D32' }}>Copy to Clipboard</button>
             </div>
           </div>
         </div>
@@ -1513,47 +1184,14 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
               <h2 style={{ margin: 0, color: '#E65100', fontSize: '18px' }}>💡 Select Highlight to Explain</h2>
               <button onClick={() => setShowHighlightPicker(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px', color: theme.text }}>✕</button>
             </div>
-            <p style={{ color: theme.textSecondary, fontSize: '14px', marginBottom: '16px' }}>
-              Click on a highlighted section to get an AI explanation:
-            </p>
+            <p style={{ color: theme.textSecondary, fontSize: '14px', marginBottom: '16px' }}>Click on a highlighted section to get an AI explanation:</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {currentHighlights.map((text, idx) => {
                 const cached = cachedExplanations.find(c => c.highlighted_text === text);
                 return (
-                  <div
-                    key={idx}
-                    onClick={() => handleExplainHighlight(text)}
-                    style={{
-                      background: '#FFEB3B',
-                      borderRadius: '8px',
-                      padding: '12px 16px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      transition: 'transform 0.1s, box-shadow 0.1s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'scale(1.02)';
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'scale(1)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                  >
-                    <span style={{ color: '#5D4037', fontSize: '14px', flex: 1, marginRight: '12px' }}>
-                      "{text.length > 80 ? text.slice(0, 80) + '...' : text}"
-                    </span>
-                    {cached ? (
-                      <span style={{ background: '#4CAF50', color: 'white', padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                        📚 Cached
-                      </span>
-                    ) : (
-                      <span style={{ background: '#FF9800', color: 'white', padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                        ✨ New
-                      </span>
-                    )}
+                  <div key={idx} onClick={() => handleExplainHighlight(text)} style={{ background: '#FFEB3B', borderRadius: '8px', padding: '12px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'transform 0.1s, box-shadow 0.1s' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}>
+                    <span style={{ color: '#5D4037', fontSize: '14px', flex: 1, marginRight: '12px' }}>"{text.length > 80 ? text.slice(0, 80) + '...' : text}"</span>
+                    {cached ? <span style={{ background: '#4CAF50', color: 'white', padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>📚 Cached</span> : <span style={{ background: '#FF9800', color: 'white', padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>✨ New</span>}
                   </div>
                 );
               })}
@@ -1581,114 +1219,44 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
                 <strong>Explaining:</strong> "{explanationHighlight.length > 100 ? explanationHighlight.slice(0, 100) + '...' : explanationHighlight}"
               </div>
             )}
-            <div style={{ background: darkMode ? '#3a3a2e' : '#FFF3E0', borderRadius: '12px', padding: '24px', lineHeight: '1.8', color: theme.text, fontSize: '15px', whiteSpace: 'pre-wrap' }}>
-              {explanationText}
-            </div>
+            <div style={{ background: darkMode ? '#3a3a2e' : '#FFF3E0', borderRadius: '12px', padding: '24px', lineHeight: '1.8', color: theme.text, fontSize: '15px', whiteSpace: 'pre-wrap' }}>{explanationText}</div>
           </div>
         </div>
       )}
 
-      {/* Rename Modal */}
+      {/* ── Rename Modal ── */}
       {showRenameModal && selectedNote && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }} onClick={() => setShowRenameModal(false)}>
           <div style={{ background: theme.cardBg, borderRadius: '12px', padding: '24px', width: '400px', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px 0', color: theme.text, fontSize: '16px' }}>📝 Rename Note</h3>
             <input
-              type="text"
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
+              type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { saveTitle(); setShowRenameModal(false); } if (e.key === 'Escape') setShowRenameModal(false); }}
-              placeholder="Enter note title..."
-              autoFocus
-              style={{
-                width: '100%',
-                padding: '12px',
-                fontSize: '14px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: '8px',
-                outline: 'none',
-                background: theme.inputBg,
-                color: theme.text,
-                boxSizing: 'border-box',
-              }}
+              placeholder="Enter note title..." autoFocus
+              style={{ width: '100%', padding: '12px', fontSize: '14px', border: `1px solid ${theme.border}`, borderRadius: '8px', outline: 'none', background: theme.inputBg, color: theme.text, boxSizing: 'border-box' }}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
-              <button
-                onClick={() => setShowRenameModal(false)}
-                style={{ padding: '8px 16px', border: `1px solid ${theme.border}`, background: 'transparent', borderRadius: '6px', cursor: 'pointer', color: theme.text }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { saveTitle(); setShowRenameModal(false); }}
-                style={{ padding: '8px 16px', border: 'none', background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', borderRadius: '6px', cursor: 'pointer', color: '#5D4037', fontWeight: 'bold' }}
-              >
-                Save
-              </button>
+              <button onClick={() => setShowRenameModal(false)} style={{ padding: '8px 16px', border: `1px solid ${theme.border}`, background: 'transparent', borderRadius: '6px', cursor: 'pointer', color: theme.text }}>Cancel</button>
+              <button onClick={() => { saveTitle(); setShowRenameModal(false); }} style={{ padding: '8px 16px', border: 'none', background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)', borderRadius: '6px', cursor: 'pointer', color: '#5D4037', fontWeight: 'bold' }}>Save</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Peeling Loading Modal */}
+      {/* ── Peeling Loading Modal ── */}
       {showPeelingModal && (
-        <div style={{ 
-          position: 'fixed', 
-          inset: 0, 
-          background: 'rgba(0,0,0,0.8)', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          zIndex: 4000,
-          flexDirection: 'column',
-          gap: '20px'
-        }}>
-          <img 
-            src="/monkey-loading.png" 
-            alt="Loading monkey" 
-            style={{ 
-              width: '200px', 
-              height: 'auto',
-              animation: 'bounce 1s ease-in-out infinite',
-            }} 
-          />
-          <div style={{ 
-            color: '#FFC107', 
-            fontSize: '24px', 
-            fontWeight: 'bold',
-            textAlign: 'center',
-            textShadow: '0 2px 10px rgba(0,0,0,0.5)'
-          }}>
-            🍌 Peeling your notes...
-          </div>
-          <div style={{
-            color: '#fff',
-            fontSize: '14px',
-            opacity: 0.7
-          }}>
-            This may take a few seconds
-          </div>
-          <style>{`
-            @keyframes bounce {
-              0%, 100% { transform: translateY(0); }
-              50% { transform: translateY(-15px); }
-            }
-          `}</style>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4000, flexDirection: 'column', gap: '20px' }}>
+          <img src="/monkey-loading.png" alt="Loading monkey" style={{ width: '200px', height: 'auto', animation: 'bounce 1s ease-in-out infinite' }} />
+          <div style={{ color: '#FFC107', fontSize: '24px', fontWeight: 'bold', textAlign: 'center', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>🍌 Peeling your notes...</div>
+          <div style={{ color: '#fff', fontSize: '14px', opacity: 0.7 }}>This may take a few seconds</div>
+          <style>{`@keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }`}</style>
         </div>
       )}
 
       {/* Status Bar */}
-      <div style={{
-        background: theme.statusBar,
-        borderTop: `1px solid ${theme.border}`,
-        padding: '4px 15px',
-        fontSize: '12px',
-        color: theme.textSecondary,
-        display: 'flex',
-        justifyContent: 'space-between'
-      }}>
-        <span>{selectedNote ? `Editing: ${selectedNote.title || 'Untitled'}` : 'No note selected - Use File → Upload New Note to get started'}</span>
-        <span>{charCount} characters • {wordCount} words • {zoom}% | Gemini AI</span>
+      <div style={{ background: theme.statusBar, borderTop: `1px solid ${theme.border}`, padding: '4px 15px', fontSize: '12px', color: theme.textSecondary, display: 'flex', justifyContent: 'space-between' }}>
+        <span>{selectedNote ? `Editing: ${selectedNote.title || 'Untitled'}` : 'No note selected — use File → Upload New Note to get started'}</span>
+        <span>{charCount} characters • {wordCount} words • {zoom}% | Workers AI</span>
       </div>
     </div>
   );

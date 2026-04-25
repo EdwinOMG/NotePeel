@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { notesAPI } from '../services/api';
 import type { NoteWithImage } from '../types';
+import { UsageBanner } from '../components/UsageBanner';
 
 interface MobileNoteViewerProps {
   noteId: number;
@@ -317,6 +318,7 @@ export default function MobileNoteViewer({ noteId, onBack, darkMode }: MobileNot
         >
           {generatingFlashcards ? '⏳ Generating...' : '🃏 Flashcards'}
         </button>
+        
       </div>
 
       {/* Summary Modal */}

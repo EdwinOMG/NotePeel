@@ -11,6 +11,7 @@ from app.services.workers_ai import (
     generate_flashcards,
     categorize_note,
 )
+from app.services.usage_service import usage_service
 
 
 class AIController:
@@ -24,7 +25,9 @@ class AIController:
         user: User,
         regenerate: bool = False
     ) -> dict:
-        # Verify note ownership
+        # 1. Feature gate — free users cannot access flashcards at all
+        usage_service.assert_feature_allowed(user, "flashcards")
+
         note = db.query(Note).filter(
             Note.id == note_id,
             Note.owner_id == user.id
@@ -35,7 +38,7 @@ class AIController:
         if not note.raw_text:
             raise HTTPException(status_code=400, detail="Note has no text content to generate flashcards from")
 
-        # Return cached set if it exists and regenerate not requested
+        # 2. Return cached result — no token cost
         if not regenerate:
             existing = db.query(FlashcardSet).filter(
                 FlashcardSet.note_id == note_id,
@@ -48,17 +51,22 @@ class AIController:
                     "cached": True
                 }
 
-        # Generate new flashcards via Workers AI
-        cards_data = await generate_flashcards(note.raw_text)
+        # 3. Token budget check — before hitting Workers AI
+        usage_service.assert_budget_available(db, user, "flashcards")
 
-        # Delete old set if regenerating
+        # 4. Call Workers AI
+        cards_data, tokens_used = await generate_flashcards(note.raw_text)
+
+        # 5. Record real usage
+        usage_service.record_usage(db, user, "flashcards", tokens_used)
+
+        # 6. Persist results
         db.query(FlashcardSet).filter(
             FlashcardSet.note_id == note_id,
             FlashcardSet.owner_id == user.id
         ).delete()
         db.commit()
 
-        # Save new set
         flashcard_set = FlashcardSet(
             note_id=note_id,
             owner_id=user.id,
@@ -92,6 +100,9 @@ class AIController:
         user: User,
         regenerate: bool = False
     ) -> dict:
+        # 1. Feature gate
+        usage_service.assert_feature_allowed(user, "summarize")
+
         note = db.query(Note).filter(
             Note.id == note_id,
             Note.owner_id == user.id
@@ -102,7 +113,7 @@ class AIController:
         if not note.raw_text:
             raise HTTPException(status_code=400, detail="Note has no text content to summarize")
 
-        # Return cached summary if it exists
+        # 2. Return cache — free
         if not regenerate:
             existing = db.query(AISummary).filter(
                 AISummary.note_id == note_id,
@@ -111,21 +122,26 @@ class AIController:
             if existing:
                 return {"summary": existing.summary, "cached": True}
 
-        # Generate via Workers AI
-        summary_text = await summarize_note(note.raw_text)
+        # 3. Budget check
+        usage_service.assert_budget_available(db, user, "summarize")
 
-        # Upsert — delete old, insert new
+        # 4. Call Workers AI
+        summary_text, tokens_used = await summarize_note(note.raw_text)
+
+        # 5. Record usage
+        usage_service.record_usage(db, user, "summarize", tokens_used)
+
+        # 6. Upsert cache
         db.query(AISummary).filter(
             AISummary.note_id == note_id,
             AISummary.owner_id == user.id
         ).delete()
 
-        summary = AISummary(
+        db.add(AISummary(
             note_id=note_id,
             owner_id=user.id,
             summary=summary_text
-        )
-        db.add(summary)
+        ))
         db.commit()
 
         return {"summary": summary_text, "cached": False}
@@ -139,7 +155,10 @@ class AIController:
         user: User,
         note_id: Optional[int] = None
     ) -> dict:
-        # Check cache first
+        # 1. Feature gate
+        usage_service.assert_feature_allowed(user, "explain")
+
+        # 2. Return cache — free
         query = db.query(AIExplanation).filter(
             AIExplanation.owner_id == user.id,
             AIExplanation.highlighted_text == highlighted_text
@@ -155,7 +174,10 @@ class AIController:
                 "cached": True
             }
 
-        # Get note context if note_id provided
+        # 3. Budget check
+        usage_service.assert_budget_available(db, user, "explain")
+
+        # 4. Build context window
         context = ""
         if note_id:
             note = db.query(Note).filter(
@@ -163,7 +185,6 @@ class AIController:
                 Note.owner_id == user.id
             ).first()
             if note and note.raw_text:
-                # Grab surrounding context — find the highlight in raw text
                 raw = note.raw_text
                 idx = raw.lower().find(highlighted_text.lower())
                 if idx != -1:
@@ -171,20 +192,21 @@ class AIController:
                     end = min(len(raw), idx + len(highlighted_text) + 300)
                     context = raw[start:end]
                 else:
-                    # Just use first 600 chars as context
                     context = raw[:600]
 
-        # Generate via Workers AI
-        explanation_text = await explain_highlight(highlighted_text, context)
+        # 5. Call Workers AI
+        explanation_text, tokens_used = await explain_highlight(highlighted_text, context)
 
-        # Cache it
-        explanation = AIExplanation(
+        # 6. Record usage
+        usage_service.record_usage(db, user, "explain", tokens_used)
+
+        # 7. Cache result
+        db.add(AIExplanation(
             note_id=note_id,
             owner_id=user.id,
             highlighted_text=highlighted_text,
             explanation=explanation_text
-        )
-        db.add(explanation)
+        ))
         db.commit()
 
         return {
@@ -215,8 +237,9 @@ class AIController:
     @staticmethod
     async def auto_categorize(db: Session, note: Note) -> None:
         """
-        Called after OCR completes. Categorizes the note by subject, topic,
-        and tags using Workers AI. Silently fails so it never breaks upload.
+        Called after OCR completes. No user-facing rate limit applied here
+        because it's server-triggered, not user-triggered. Silently fails
+        so it never breaks upload.
         """
         if not note.raw_text:
             return
@@ -228,7 +251,7 @@ class AIController:
             note.tags = ", ".join(tags) if isinstance(tags, list) else str(tags)
             db.commit()
         except Exception:
-            pass  # categorization failing must never break the upload
+            pass
 
 
 ai_controller = AIController()
