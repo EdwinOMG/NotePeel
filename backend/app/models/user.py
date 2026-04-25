@@ -25,11 +25,11 @@ class User(Base):
 
     # Subscription — default everyone to free
     subscription = Column(
-        Enum(SubscriptionTier),
-        nullable=False,
-        default=SubscriptionTier.FREE,
-        server_default=SubscriptionTier.FREE.value,
-    )
+    Enum(SubscriptionTier, native_enum=False),  
+    nullable=False,
+    default=SubscriptionTier.FREE,
+    server_default="free", 
+)
 
     # Relationships
     notes = relationship("Note", back_populates="owner")
