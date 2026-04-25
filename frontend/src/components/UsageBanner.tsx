@@ -1,4 +1,3 @@
-import React from "react";
 import { useUsage } from "../hooks/useUsage";
 
 interface UsageBannerProps {

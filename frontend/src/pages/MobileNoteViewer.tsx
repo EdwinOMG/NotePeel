@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { notesAPI } from '../services/api';
 import type { NoteWithImage } from '../types';
-import { UsageBanner } from '../components/UsageBanner';
 
 interface MobileNoteViewerProps {
   noteId: number;

@@ -13,7 +13,6 @@ import MobileSettings from './pages/MobileSettings';
 import InstallPrompt from './pages/InstallPrompt';
 import DesktopInstallBanner from './pages/DesktopInstallBanner';
 import { UsageBanner } from './components/UsageBanner';
-import { FeatureGate } from './components/FeatureGate';
 
 type Page = 
   | { type: 'login' }
