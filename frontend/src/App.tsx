@@ -193,13 +193,9 @@ function App() {
   // ─── DESKTOP ROUTING (unchanged) ─────────────────────────────
   
   // Wrap desktop pages with the install banner
- const withBanner = (page: React.ReactNode) => (
+const withBanner = (page: React.ReactNode) => (
   <>
     <DesktopInstallBanner />
-    {/* Usage banner sits just below the install banner */}
-    <div style={{ padding: '0 32px' }}>
-      <UsageBanner token={token} darkMode={darkMode} />
-    </div>
     {page}
   </>
 );

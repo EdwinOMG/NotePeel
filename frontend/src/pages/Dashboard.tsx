@@ -3,7 +3,7 @@ import { notesAPI } from '../services/api';
 import type { Note, NoteWithImage, Categories } from '../types';
 import { FeatureGate } from '../components/FeatureGate';
 import { useUsage } from '../hooks/useUsage';
-
+import { UsageBanner } from '../components/UsageBanner';
 interface DashboardProps {
   userEmail: string;
   onLogout: () => void;
@@ -631,6 +631,11 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         </div>
       </div>
 
+
+      {/* ── Usage Banner ── */}
+    <div style={{ padding: '6px 15px 0', background: darkMode ? '#2d2d4a' : '#fff' }}>
+      <UsageBanner token={token} darkMode={darkMode} />
+    </div>
       {/* Menu Bar */}
       <div style={{ background: theme.menuBg, borderBottom: `1px solid ${theme.border}`, display: 'flex', padding: '2px 10px', position: 'relative' }}>
         {/* File Menu */}
