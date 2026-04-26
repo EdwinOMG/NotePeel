@@ -13,7 +13,7 @@ from app.routes.note_routes import router as note_router
 from app.routes.notebook_routes import router as notebook_router
 from app.routes.ai_routes import router as ai_router
 from ocr_service import extract_structured_text
-from app.routers.usage_router import router as usage_router
+from app.routes.usage_router import router as usage_router
 
 app = FastAPI(
     title="NotePeel",
