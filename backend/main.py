@@ -13,6 +13,7 @@ from app.routes.note_routes import router as note_router
 from app.routes.notebook_routes import router as notebook_router
 from app.routes.ai_routes import router as ai_router
 from ocr_service import extract_structured_text
+from app.routers.usage_router import router as usage_router
 
 app = FastAPI(
     title="NotePeel",
@@ -40,6 +41,7 @@ app.include_router(auth_router)
 app.include_router(note_router)
 app.include_router(notebook_router)
 app.include_router(ai_router)
+app.include_router(usage_router, prefix="/api")
 
 
 @app.on_event("startup")
