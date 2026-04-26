@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { notesAPI } from '../services/api';
 import type { Note, NoteWithImage, Categories } from '../types';
-import { UsageBanner } from '../components/UsageBanner';
 import { FeatureGate } from '../components/FeatureGate';
+import { useUsage } from '../hooks/useUsage';
 
 interface DashboardProps {
   userEmail: string;
@@ -30,7 +30,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [charCount, setCharCount] = useState(0);
   const [noteType, setNoteType] = useState<'default' | 'lecture' | 'meeting'>('default');
   const [zoom, setZoom] = useState(100);
-  
+
   // AI Features state
   const [showFlashcards, setShowFlashcards] = useState(false);
   const [flashcards, setFlashcards] = useState<{question: string; answer: string}[]>([]);
@@ -68,6 +68,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   // Token for usage hooks — read once from localStorage (stable reference)
   const token = localStorage.getItem('token');
+
+
+  const { refresh: refreshUsage } = useUsage(token);
 
   // Theme colors
   const theme = {
@@ -424,6 +427,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setFlashcardFlipped(false);
       setShowFlashcards(true);
       setMessage('');
+      refreshUsage();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to generate flashcards';
       setMessage('⚠️ ' + msg);
@@ -443,6 +447,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       setSummaryText(result.summary);
       setShowSummary(true);
       setMessage('');
+      refreshUsage();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to summarize';
       setMessage('⚠️ ' + msg);
@@ -505,6 +510,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         if (selectedNote?.id) {
           const newCached = await notesAPI.getExplanations(selectedNote.id);
           setCachedExplanations(newCached);
+          refreshUsage();
         }
       }
     } catch (err) {
@@ -623,11 +629,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             Logout
           </button>
         </div>
-      </div>
-
-      {/* ── Usage Banner ── sits just below the title bar, above the menu */}
-      <div style={{ padding: '6px 15px 0', background: darkMode ? '#2d2d4a' : '#fff' }}>
-        <UsageBanner token={token} darkMode={darkMode} />
       </div>
 
       {/* Menu Bar */}

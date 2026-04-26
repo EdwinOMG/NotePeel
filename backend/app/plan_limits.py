@@ -14,7 +14,7 @@ class PlanLimits:
 PLAN_LIMITS: dict[SubscriptionTier, PlanLimits] = {
     SubscriptionTier.FREE: PlanLimits(
         daily_token_budget=10_000,
-        max_requests_per_day=10,
+        max_requests_per_day=4,
         # flashcards not accessible to free users 
         allowed_features={"scan", "summarize", "explain"},
     ),

@@ -36,7 +36,7 @@ function App() {
     const token = localStorage.getItem('token');
     const email = localStorage.getItem('userEmail');
     const savedDarkMode = localStorage.getItem('darkMode');
-    
+
     if (token && email) {
       setIsAuthenticated(true);
       setUserEmail(email);
