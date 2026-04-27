@@ -41,30 +41,31 @@ class AIController:
         usage_service.assert_budget_available(db, user, "flashcards")
         cards_data, tokens_used = await generate_flashcards(note.raw_text)
 
-        # 1. Update Usage (This internal logic should ideally use db.flush() instead of commit)
+        # Record Usage immediately
         usage_service.record_usage(db, user, "flashcards", tokens_used, weight=0.5)
 
-        # 2. Clear old set
+        # Clear and Add Flashcards
         db.query(FlashcardSet).filter(FlashcardSet.note_id == note_id).delete()
-
-        # 3. Create new set
+        
         flashcard_set = FlashcardSet(
             note_id=note_id,
             owner_id=user.id,
             title=f"Flashcards: {note.title or 'Untitled'}"
         )
         db.add(flashcard_set)
-        db.flush() # Get the flashcard_set.id without committing yet
+        db.flush() # Needed to get the ID for children
 
         for card in cards_data:
-            db.add(Flashcard(set_id=flashcard_set.id, question=card.get("question", ""), answer=card.get("answer", "")))
+            db.add(Flashcard(
+                set_id=flashcard_set.id, 
+                question=card.get("question", ""), 
+                answer=card.get("answer", "")
+            ))
 
-        # 4. Final Atomic Commit (Saves usage + flashcards at once)
-        db.commit()
+        db.commit() # Save everything
         db.refresh(flashcard_set)
-
-        return {"title": flashcard_set.title, "cards": [{"question": c.question, "answer": c.answer} for c in flashcard_set.cards], "cached": False}
-   
+        return {"title": flashcard_set.title, "cards": [...], "cached": False}
+    
     @staticmethod
     async def get_or_generate_summary(db: Session, note_id: int, user: User, regenerate: bool = False) -> dict:
         usage_service.assert_feature_allowed(user, "summarize")

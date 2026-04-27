@@ -81,15 +81,10 @@ class UsageService:
         row = db.query(DailyUsage).filter(
             DailyUsage.user_id == user.id,
             DailyUsage.date == today,
-        ).with_for_update().first()
+        ).first()
 
-        if row:
-            row.tokens_used += tokens_used
-            row.requests_made += float(weight)  # Ensure float math
-            row.updated_at = datetime.utcnow()
-            print(f"DEBUG: Updating usage for User {user.id}: +{weight} req, +{tokens_used} tokens")
-        else:
-            # Safety fallback if _get_or_create_today wasn't called
+        if not row:
+            # If it somehow doesn't exist (safety fallback), create and COMMIT immediately
             row = DailyUsage(
                 user_id=user.id,
                 date=today,
@@ -97,11 +92,17 @@ class UsageService:
                 requests_made=weight,
             )
             db.add(row)
-            print(f"DEBUG: Creating brand new usage row for User {user.id}")
-
-        # IMPORTANT: flush() sends the SQL to the DB, but keeps the transaction open.
-        # The AIController will call db.commit() to finalize.
-        db.flush()
+            db.commit() # Persistent save
+            print(f"DEBUG: Created and Committed new usage for User {user.id}")
+        else:
+            # Update existing row
+            row.tokens_used += tokens_used
+            row.requests_made += float(weight)
+            row.updated_at = datetime.utcnow()
+            db.add(row) 
+            db.commit() 
+            print(f"DEBUG: Updated and Committed usage for User {user.id}: +{tokens_used} tokens")
+            
 
     # ── 4. Budget Summary ────────────────────────────────────────────────────
     def get_budget_summary(self, db: Session, user: User) -> dict:
@@ -139,21 +140,21 @@ class UsageService:
         ).first()
 
         if not row:
+            # Use a sub-transaction (nested) or a clean commit to ensure this exists
             try:
-                row = DailyUsage(
+                new_row = DailyUsage(
                     user_id=user_id,
                     date=today,
                     tokens_used=0,
                     requests_made=0,
                 )
-                db.add(row)
-                db.commit() # This commit is okay because it's just initializing the day
-                db.refresh(row)
-            except Exception:
+                db.add(new_row)
+                db.commit()
+                return new_row
+            except Exception as e:
                 db.rollback()
-                # If another request created it simultaneously, fetch it
-                row = db.query(DailyUsage).filter(DailyUsage.user_id == user_id, DailyUsage.date == today).first()
-
+                # If someone else created it while we were trying to, just fetch it
+                return db.query(DailyUsage).filter(DailyUsage.user_id == user_id, DailyUsage.date == today).first()
         return row
 
 usage_service = UsageService()
