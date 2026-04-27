@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, Date, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, Float, BigInteger, Date, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -22,7 +22,7 @@ class DailyUsage(Base):
 
     # Cumulative counters for the day
     tokens_used = Column(BigInteger, nullable=False, default=0)
-    requests_made = Column(Integer, nullable=False, default=0)
+    requests_made = Column(Float, nullable=False, default=0.0)
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
