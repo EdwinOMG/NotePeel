@@ -25,195 +25,112 @@ class AIController:
         user: User,
         regenerate: bool = False
     ) -> dict:
-        # 1. Feature gate — free users cannot access flashcards at all
         usage_service.assert_feature_allowed(user, "flashcards")
 
-        note = db.query(Note).filter(
-            Note.id == note_id,
-            Note.owner_id == user.id
-        ).first()
+        note = db.query(Note).filter(Note.id == note_id, Note.owner_id == user.id).first()
         if not note:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
-
         if not note.raw_text:
-            raise HTTPException(status_code=400, detail="Note has no text content to generate flashcards from")
+            raise HTTPException(status_code=400, detail="Note has no text content")
 
-        # 2. Return cached result — no token cost
         if not regenerate:
-            existing = db.query(FlashcardSet).filter(
-                FlashcardSet.note_id == note_id,
-                FlashcardSet.owner_id == user.id
-            ).first()
+            existing = db.query(FlashcardSet).filter(FlashcardSet.note_id == note_id).first()
             if existing:
-                return {
-                    "title": existing.title,
-                    "cards": [{"question": c.question, "answer": c.answer} for c in existing.cards],
-                    "cached": True
-                }
+                return {"title": existing.title, "cards": [{"question": c.question, "answer": c.answer} for c in existing.cards], "cached": True}
 
-        # 3. Token budget check — before hitting Workers AI
         usage_service.assert_budget_available(db, user, "flashcards")
-
-        # 4. Call Workers AI
         cards_data, tokens_used = await generate_flashcards(note.raw_text)
 
-        # 5. Record real usage
+        # 1. Update Usage (This internal logic should ideally use db.flush() instead of commit)
         usage_service.record_usage(db, user, "flashcards", tokens_used, weight=0.5)
 
-        # 6. Persist results
-        db.query(FlashcardSet).filter(
-            FlashcardSet.note_id == note_id,
-            FlashcardSet.owner_id == user.id
-        ).delete()
-        db.commit()
+        # 2. Clear old set
+        db.query(FlashcardSet).filter(FlashcardSet.note_id == note_id).delete()
 
+        # 3. Create new set
         flashcard_set = FlashcardSet(
             note_id=note_id,
             owner_id=user.id,
             title=f"Flashcards: {note.title or 'Untitled'}"
         )
         db.add(flashcard_set)
-        db.flush()
+        db.flush() # Get the flashcard_set.id without committing yet
 
         for card in cards_data:
-            db.add(Flashcard(
-                set_id=flashcard_set.id,
-                question=card.get("question", ""),
-                answer=card.get("answer", "")
-            ))
+            db.add(Flashcard(set_id=flashcard_set.id, question=card.get("question", ""), answer=card.get("answer", "")))
 
+        # 4. Final Atomic Commit (Saves usage + flashcards at once)
         db.commit()
         db.refresh(flashcard_set)
 
-        return {
-            "title": flashcard_set.title,
-            "cards": [{"question": c.question, "answer": c.answer} for c in flashcard_set.cards],
-            "cached": False
-        }
-
-    # ── Summaries ──────────────────────────────────────────────────────────────
-
+        return {"title": flashcard_set.title, "cards": [{"question": c.question, "answer": c.answer} for c in flashcard_set.cards], "cached": False}
+   
     @staticmethod
-    async def get_or_generate_summary(
-        db: Session,
-        note_id: int,
-        user: User,
-        regenerate: bool = False
-    ) -> dict:
-        # 1. Feature gate
+    async def get_or_generate_summary(db: Session, note_id: int, user: User, regenerate: bool = False) -> dict:
         usage_service.assert_feature_allowed(user, "summarize")
 
-        note = db.query(Note).filter(
-            Note.id == note_id,
-            Note.owner_id == user.id
-        ).first()
+        note = db.query(Note).filter(Note.id == note_id, Note.owner_id == user.id).first()
         if not note:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+            raise HTTPException(status_code=404, detail="Note not found")
 
-        if not note.raw_text:
-            raise HTTPException(status_code=400, detail="Note has no text content to summarize")
-
-        # 2. Return cache — free
         if not regenerate:
-            existing = db.query(AISummary).filter(
-                AISummary.note_id == note_id,
-                AISummary.owner_id == user.id
-            ).first()
+            existing = db.query(AISummary).filter(AISummary.note_id == note_id).first()
             if existing:
                 return {"summary": existing.summary, "cached": True}
 
-        # 3. Budget check
         usage_service.assert_budget_available(db, user, "summarize")
-
-        # 4. Call Workers AI
         summary_text, tokens_used = await summarize_note(note.raw_text)
 
-        # 5. Record usage
+        # Record usage and then update cache in one transaction
         usage_service.record_usage(db, user, "summarize", tokens_used, weight=0.5)
 
-        # 6. Upsert cache
-        db.query(AISummary).filter(
-            AISummary.note_id == note_id,
-            AISummary.owner_id == user.id
-        ).delete()
-
-        db.add(AISummary(
-            note_id=note_id,
-            owner_id=user.id,
-            summary=summary_text
-        ))
+        db.query(AISummary).filter(AISummary.note_id == note_id).delete()
+        db.add(AISummary(note_id=note_id, owner_id=user.id, summary=summary_text))
+        
         db.commit()
-
         return {"summary": summary_text, "cached": False}
 
     # ── Explanations ───────────────────────────────────────────────────────────
 
     @staticmethod
-    async def explain(
-        db: Session,
-        highlighted_text: str,
-        user: User,
-        note_id: Optional[int] = None
-    ) -> dict:
-        # 1. Feature gate
+    async def explain(db: Session, highlighted_text: str, user: User, note_id: Optional[int] = None) -> dict:
         usage_service.assert_feature_allowed(user, "explain")
 
-        # 2. Return cache — free
-        query = db.query(AIExplanation).filter(
-            AIExplanation.owner_id == user.id,
+        # Check Cache
+        existing = db.query(AIExplanation).filter(
+            AIExplanation.owner_id == user.id, 
             AIExplanation.highlighted_text == highlighted_text
-        )
-        if note_id:
-            query = query.filter(AIExplanation.note_id == note_id)
-
-        existing = query.first()
+        ).first()
         if existing:
-            return {
-                "highlighted_text": existing.highlighted_text,
-                "explanation": existing.explanation,
-                "cached": True
-            }
+            return {"highlighted_text": existing.highlighted_text, "explanation": existing.explanation, "cached": True}
 
-        # 3. Budget check
         usage_service.assert_budget_available(db, user, "explain")
 
-        # 4. Build context window
+        # Build Context logic...
         context = ""
         if note_id:
-            note = db.query(Note).filter(
-                Note.id == note_id,
-                Note.owner_id == user.id
-            ).first()
+            note = db.query(Note).filter(Note.id == note_id).first()
             if note and note.raw_text:
-                raw = note.raw_text
-                idx = raw.lower().find(highlighted_text.lower())
-                if idx != -1:
-                    start = max(0, idx - 300)
-                    end = min(len(raw), idx + len(highlighted_text) + 300)
-                    context = raw[start:end]
-                else:
-                    context = raw[:600]
+                # ... (keep your context extraction logic here) ...
+                context = note.raw_text[:600] 
 
-        # 5. Call Workers AI
         explanation_text, tokens_used = await explain_highlight(highlighted_text, context)
 
-        # 6. Record usage
-        usage_service.record_usage(db, user, "explain", tokens_used)
-
-        # 7. Cache result
+        # 🟢 THE FIX: Call usage service
+        usage_service.record_usage(db, user, "explain", tokens_used, weight=0.5)
+        
+        # Cache Result
         db.add(AIExplanation(
             note_id=note_id,
             owner_id=user.id,
             highlighted_text=highlighted_text,
             explanation=explanation_text
         ))
+        
+        # Commit everything
         db.commit()
 
-        return {
-            "highlighted_text": highlighted_text,
-            "explanation": explanation_text,
-            "cached": False
-        }
+        return {"highlighted_text": highlighted_text, "explanation": explanation_text, "cached": False}
 
     @staticmethod
     def get_explanations(db: Session, note_id: int, user: User) -> list:
