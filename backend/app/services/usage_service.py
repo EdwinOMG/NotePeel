@@ -17,10 +17,8 @@ FEATURE_ESTIMATED_TOKENS: dict[str, int] = {
 
 class UsageService:
 
-    # ── 1. Feature Gate ──────────────────────────────────────────────────────
+    # ── 1. Feature Gate (Kept as is) ──────────────────────────────────────────
     def assert_feature_allowed(self, user: User, feature: str) -> None:
-        """Checks if the user's plan even supports this feature."""
-        # Ensure user.subscription matches keys in PLAN_LIMITS (e.g., 'free', 'pro')
         plan_name = user.subscription.lower() if hasattr(user.subscription, 'lower') else str(user.subscription)
         limits = PLAN_LIMITS.get(plan_name)
         
@@ -35,17 +33,14 @@ class UsageService:
                 },
             )
 
-    # ── 2. Pre-call Budget Check ─────────────────────────────────────────────
+    # ── 2. Pre-call Budget Check (Kept as is) ─────────────────────────────────
     def assert_budget_available(self, db: Session, user: User, feature: str) -> DailyUsage:
-        """Checks if user has enough requests/tokens left before calling AI."""
         plan_name = user.subscription.lower() if hasattr(user.subscription, 'lower') else str(user.subscription)
         limits = PLAN_LIMITS[plan_name]
         today = date.today()
 
-        # Get the row (creates it with 0s if it doesn't exist)
         row = self._get_or_create_today(db, user.id, today)
 
-        # Check request count
         if row.requests_made >= limits.max_requests_per_day:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -55,7 +50,6 @@ class UsageService:
                 }
             )
 
-        # Check token budget using an estimate
         estimated = FEATURE_ESTIMATED_TOKENS.get(feature, 500)
         if row.tokens_used + estimated > limits.daily_token_budget:
             raise HTTPException(
@@ -65,48 +59,48 @@ class UsageService:
                     "message": "Daily token budget reached. Resets at midnight UTC.",
                 }
             )
-
         return row
 
-    # ── 3. Post-call recording ───────────────────────────────────────────────
+    # ── 3. Post-call recording (FIXED) ───────────────────────────────────────
     def record_usage(self, db: Session, user: User, feature: str, tokens_used: int, weight: float = 1.0) -> None:
-        """
-        Updates the usage row. 
-        Note: We use db.flush() instead of db.commit() here. 
-        This allows the Controller to commit everything (Usage + AI Result) in one go.
-        """
         today = date.today()
         
-        # Lock the row for update to prevent race conditions
+        # 1. Fetch the row (don't use with_for_update here to avoid deadlocks on first row creation)
         row = db.query(DailyUsage).filter(
             DailyUsage.user_id == user.id,
             DailyUsage.date == today,
         ).first()
 
         if not row:
-            # If it somehow doesn't exist (safety fallback), create and COMMIT immediately
+            # Fallback creation if _get_or_create_today wasn't used
             row = DailyUsage(
                 user_id=user.id,
                 date=today,
                 tokens_used=tokens_used,
-                requests_made=weight,
+                requests_made=float(weight), # Force float
             )
             db.add(row)
-            db.commit() # Persistent save
-            print(f"DEBUG: Created and Committed new usage for User {user.id}")
         else:
-            # Update existing row
-            row.tokens_used += tokens_used
-            row.requests_made += float(weight)
-            row.updated_at = datetime.utcnow()
-            db.add(row) 
-            db.commit() 
-            print(f"DEBUG: Updated and Committed usage for User {user.id}: +{tokens_used} tokens")
+            # 2. Update existing row using explicit float conversion
+            # This handles cases where the DB might try to treat it as an int
+            current_reqs = float(row.requests_made or 0.0)
+            row.requests_made = current_reqs + float(weight)
             
+            row.tokens_used = (row.tokens_used or 0) + tokens_used
+            row.updated_at = datetime.utcnow()
+            db.add(row)
 
-    # ── 4. Budget Summary ────────────────────────────────────────────────────
+        # 3. CRITICAL: Commit immediately so usage is saved even if the next step fails
+        try:
+            db.commit()
+            db.refresh(row)
+            print(f"DEBUG: Usage Recorded - User {user.id} | +{weight} reqs | Total: {row.requests_made}")
+        except Exception as e:
+            db.rollback()
+            print(f"ERROR saving usage: {e}")
+
+    # ── 4. Budget Summary (Kept as is) ────────────────────────────────────────
     def get_budget_summary(self, db: Session, user: User) -> dict:
-        """Returns data for the frontend usage banner."""
         plan_name = user.subscription.lower() if hasattr(user.subscription, 'lower') else str(user.subscription)
         limits = PLAN_LIMITS.get(plan_name)
         today = date.today()
@@ -131,29 +125,29 @@ class UsageService:
             "resets_at": "midnight UTC",
         }
 
-    # ── 5. Internal Helper ───────────────────────────────────────────────────
+    # ── 5. Internal Helper (RE-FIXED) ─────────────────────────────────────────
     def _get_or_create_today(self, db: Session, user_id: int, today: date) -> DailyUsage:
-        """Ensures a record exists for today so we can increment it later."""
         row = db.query(DailyUsage).filter(
             DailyUsage.user_id == user_id,
             DailyUsage.date == today,
         ).first()
 
         if not row:
-            # Use a sub-transaction (nested) or a clean commit to ensure this exists
             try:
+                # Use a fresh instance
                 new_row = DailyUsage(
                     user_id=user_id,
                     date=today,
                     tokens_used=0,
-                    requests_made=0,
+                    requests_made=0.0, # Initialize as float
                 )
                 db.add(new_row)
                 db.commit()
+                db.refresh(new_row)
                 return new_row
-            except Exception as e:
+            except Exception:
                 db.rollback()
-                # If someone else created it while we were trying to, just fetch it
+                # Fetch again in case another concurrent request created it
                 return db.query(DailyUsage).filter(DailyUsage.user_id == user_id, DailyUsage.date == today).first()
         return row
 
