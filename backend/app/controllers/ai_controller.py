@@ -58,7 +58,7 @@ class AIController:
         cards_data, tokens_used = await generate_flashcards(note.raw_text)
 
         # 5. Record real usage
-        usage_service.record_usage(db, user, "flashcards", tokens_used)
+        usage_service.record_usage(db, user, "flashcards", tokens_used, weight=0.5)
 
         # 6. Persist results
         db.query(FlashcardSet).filter(
@@ -129,7 +129,7 @@ class AIController:
         summary_text, tokens_used = await summarize_note(note.raw_text)
 
         # 5. Record usage
-        usage_service.record_usage(db, user, "summarize", tokens_used)
+        usage_service.record_usage(db, user, "summarize", tokens_used, weight=0.5)
 
         # 6. Upsert cache
         db.query(AISummary).filter(

@@ -69,27 +69,29 @@ class UsageService:
 
     # ── Post-call recording ───────────────────────────────────────────────────
 
-    def record_usage(self, db: Session, user: User, feature: str, tokens_used: int) -> None:
+    def record_usage(self, db: Session, user: User, feature: str, tokens_used: int, weight: float = 1.0) -> None:
         today = date.today()
-
+        
+        # Use with_for_update to handle concurrent requests safely
         row = db.query(DailyUsage).filter(
             DailyUsage.user_id == user.id,
             DailyUsage.date == today,
-        ).first()
+        ).with_for_update().first()
 
         if row:
             row.tokens_used += tokens_used
-            row.requests_made += 1
+            row.requests_made += weight  # Now adds 1.0 or 0.5
             row.updated_at = datetime.utcnow()
         else:
             row = DailyUsage(
                 user_id=user.id,
                 date=today,
                 tokens_used=tokens_used,
-                requests_made=1,
+                requests_made=weight,
             )
             db.add(row)
 
+        print(f"DEBUG: Recording {tokens_used} tokens and {weight} requests for User {user.id}")
         db.commit()
 
     # ── Budget summary ────────────────────────────────────────────────────────
