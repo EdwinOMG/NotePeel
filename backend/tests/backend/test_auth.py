@@ -1,15 +1,14 @@
 """
-Tests for AuthController and auth routes.
+Tests for AuthController (Google + Microsoft OAuth).
 Run with: pytest tests/backend/test_auth.py -v
 """
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from datetime import timedelta
-import jwt
+from fastapi import HTTPException
 
 from app.controllers.auth_controller import AuthController
 from app.models.user import User
-from app.schemas.user_schema import UserCreate
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -19,39 +18,28 @@ def db():
     return MagicMock()
 
 @pytest.fixture
-def sample_user():
+def google_user():
     user = User()
     user.id = 1
-    user.email = "test@example.com"
+    user.email = "test@gmail.com"
     user.username = "testuser"
-    user.hashed_password = AuthController.hash_password("password123")
+    user.google_id = "google_123456"
+    user.microsoft_id = None
+    user.profile_picture = "https://lh3.googleusercontent.com/photo.jpg"
     user.is_active = True
     return user
 
-
-# ── Password Hashing ──────────────────────────────────────────────────────────
-
-class TestPasswordHashing:
-    def test_hash_password_returns_string(self):
-        hashed = AuthController.hash_password("mypassword")
-        assert isinstance(hashed, str)
-
-    def test_hash_is_not_plaintext(self):
-        hashed = AuthController.hash_password("mypassword")
-        assert hashed != "mypassword"
-
-    def test_verify_correct_password(self):
-        hashed = AuthController.hash_password("mypassword")
-        assert AuthController.verify_password("mypassword", hashed) is True
-
-    def test_verify_wrong_password(self):
-        hashed = AuthController.hash_password("mypassword")
-        assert AuthController.verify_password("wrongpassword", hashed) is False
-
-    def test_same_password_produces_different_hashes(self):
-        hash1 = AuthController.hash_password("mypassword")
-        hash2 = AuthController.hash_password("mypassword")
-        assert hash1 != hash2  # bcrypt uses random salt
+@pytest.fixture
+def microsoft_user():
+    user = User()
+    user.id = 2
+    user.email = "test@outlook.com"
+    user.username = "msuser"
+    user.google_id = None
+    user.microsoft_id = "ms_abcdef"
+    user.profile_picture = None
+    user.is_active = True
+    return user
 
 
 # ── JWT Tokens ────────────────────────────────────────────────────────────────
@@ -68,10 +56,9 @@ class TestJWTTokens:
         assert payload["email"] == "test@example.com"
 
     def test_decode_expired_token_raises(self):
-        from fastapi import HTTPException
         token = AuthController.create_access_token(
             {"sub": "1"},
-            expires_delta=timedelta(seconds=-1)  # already expired
+            expires_delta=timedelta(seconds=-1)
         )
         with pytest.raises(HTTPException) as exc:
             AuthController.decode_token(token)
@@ -79,13 +66,11 @@ class TestJWTTokens:
         assert "expired" in exc.value.detail.lower()
 
     def test_decode_invalid_token_raises(self):
-        from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc:
             AuthController.decode_token("this.is.not.valid")
         assert exc.value.status_code == 401
 
     def test_decode_tampered_token_raises(self):
-        from fastapi import HTTPException
         token = AuthController.create_access_token({"sub": "1"})
         tampered = token + "tampered"
         with pytest.raises(HTTPException):
@@ -95,20 +80,20 @@ class TestJWTTokens:
 # ── User Lookup ───────────────────────────────────────────────────────────────
 
 class TestUserLookup:
-    def test_get_user_by_email_found(self, db, sample_user):
-        db.query.return_value.filter.return_value.first.return_value = sample_user
-        result = AuthController.get_user_by_email(db, "test@example.com")
-        assert result == sample_user
+    def test_get_user_by_email_found(self, db, google_user):
+        db.query.return_value.filter.return_value.first.return_value = google_user
+        result = AuthController.get_user_by_email(db, "test@gmail.com")
+        assert result == google_user
 
     def test_get_user_by_email_not_found(self, db):
         db.query.return_value.filter.return_value.first.return_value = None
         result = AuthController.get_user_by_email(db, "nobody@example.com")
         assert result is None
 
-    def test_get_user_by_id_found(self, db, sample_user):
-        db.query.return_value.filter.return_value.first.return_value = sample_user
+    def test_get_user_by_id_found(self, db, google_user):
+        db.query.return_value.filter.return_value.first.return_value = google_user
         result = AuthController.get_user_by_id(db, 1)
-        assert result == sample_user
+        assert result == google_user
 
     def test_get_user_by_id_not_found(self, db):
         db.query.return_value.filter.return_value.first.return_value = None
@@ -116,89 +101,66 @@ class TestUserLookup:
         assert result is None
 
 
-# ── User Creation ─────────────────────────────────────────────────────────────
+# ── OAuth User Creation ───────────────────────────────────────────────────────
 
-class TestUserCreation:
-    def test_create_user_success(self, db):
-        # No existing user
-        db.query.return_value.filter.return_value.first.return_value = None
-
-        created_user = User()
-        created_user.id = 1
-        created_user.email = "new@example.com"
-        created_user.username = "newuser"
-
-        db.refresh.side_effect = lambda u: None
-
-        user_data = UserCreate(
-            email="new@example.com",
-            username="newuser",
-            password="password123"
+class TestGetOrCreateOAuthUser:
+    def test_existing_google_user_by_provider_id(self, db, google_user):
+        """If user exists with matching google_id, return them."""
+        db.query.return_value.filter.return_value.first.return_value = google_user
+        result = AuthController.get_or_create_oauth_user(
+            db, provider="google", provider_id="google_123456",
+            email="test@gmail.com", name="Test User"
         )
+        assert result == google_user
+        assert not db.add.called
 
-        with patch.object(AuthController, 'get_user_by_email', return_value=None):
-            with patch.object(db, 'query') as mock_query:
-                mock_query.return_value.filter.return_value.first.return_value = None
-                db.refresh.side_effect = lambda u: setattr(u, 'id', 1)
-                result = AuthController.create_user(db, user_data)
-                assert db.add.called
-                assert db.commit.called
+    def test_existing_microsoft_user_by_provider_id(self, db, microsoft_user):
+        """If user exists with matching microsoft_id, return them."""
+        db.query.return_value.filter.return_value.first.return_value = microsoft_user
+        result = AuthController.get_or_create_oauth_user(
+            db, provider="microsoft", provider_id="ms_abcdef",
+            email="test@outlook.com", name="MS User"
+        )
+        assert result == microsoft_user
+        assert not db.add.called
 
-    def test_create_user_duplicate_email_raises(self, db, sample_user):
-        from fastapi import HTTPException
-        with patch.object(AuthController, 'get_user_by_email', return_value=sample_user):
-            user_data = UserCreate(
-                email="test@example.com",
-                username="newuser",
-                password="password123"
-            )
-            with pytest.raises(HTTPException) as exc:
-                AuthController.create_user(db, user_data)
-            assert exc.value.status_code == 400
-            assert "email" in exc.value.detail.lower()
+    def test_new_google_user_created(self, db):
+        """If no user exists, create a new Google user."""
+        db.query.return_value.filter.return_value.first.return_value = None
+        db.refresh.side_effect = lambda u: setattr(u, 'id', 1)
 
-    def test_create_user_duplicate_username_raises(self, db, sample_user):
-        from fastapi import HTTPException
-        with patch.object(AuthController, 'get_user_by_email', return_value=None):
-            db.query.return_value.filter.return_value.first.return_value = sample_user
-            user_data = UserCreate(
-                email="unique@example.com",
-                username="testuser",
-                password="password123"
-            )
-            with pytest.raises(HTTPException) as exc:
-                AuthController.create_user(db, user_data)
-            assert exc.value.status_code == 400
-            assert "username" in exc.value.detail.lower()
+        result = AuthController.get_or_create_oauth_user(
+            db, provider="google", provider_id="new_google_id",
+            email="new@gmail.com", name="New User",
+            picture="https://photo.url/pic.jpg"
+        )
+        assert db.add.called
+        assert db.commit.called
+        assert result.email == "new@gmail.com"
+        assert result.google_id == "new_google_id"
+        assert result.profile_picture == "https://photo.url/pic.jpg"
 
+    def test_new_microsoft_user_created(self, db):
+        """If no user exists, create a new Microsoft user."""
+        db.query.return_value.filter.return_value.first.return_value = None
+        db.refresh.side_effect = lambda u: setattr(u, 'id', 2)
 
-# ── Authentication ────────────────────────────────────────────────────────────
+        result = AuthController.get_or_create_oauth_user(
+            db, provider="microsoft", provider_id="new_ms_id",
+            email="new@outlook.com", name="New MS User"
+        )
+        assert db.add.called
+        assert db.commit.called
+        assert result.email == "new@outlook.com"
+        assert result.microsoft_id == "new_ms_id"
 
-class TestAuthentication:
-    def test_authenticate_user_correct_credentials(self, db, sample_user):
-        with patch.object(AuthController, 'get_user_by_email', return_value=sample_user):
-            result = AuthController.authenticate_user(db, "test@example.com", "password123")
-            assert result == sample_user
+    def test_username_derived_from_name(self, db):
+        """Username should be derived from the provider name."""
+        db.query.return_value.filter.return_value.first.return_value = None
+        db.refresh.side_effect = lambda u: setattr(u, 'id', 1)
 
-    def test_authenticate_user_wrong_password(self, db, sample_user):
-        with patch.object(AuthController, 'get_user_by_email', return_value=sample_user):
-            result = AuthController.authenticate_user(db, "test@example.com", "wrongpassword")
-            assert result is None
-
-    def test_authenticate_user_not_found(self, db):
-        with patch.object(AuthController, 'get_user_by_email', return_value=None):
-            result = AuthController.authenticate_user(db, "nobody@example.com", "password123")
-            assert result is None
-
-    def test_login_success_returns_token(self, db, sample_user):
-        with patch.object(AuthController, 'authenticate_user', return_value=sample_user):
-            token = AuthController.login(db, "test@example.com", "password123")
-            assert token.token_type == "bearer"
-            assert isinstance(token.access_token, str)
-
-    def test_login_wrong_credentials_raises(self, db):
-        from fastapi import HTTPException
-        with patch.object(AuthController, 'authenticate_user', return_value=None):
-            with pytest.raises(HTTPException) as exc:
-                AuthController.login(db, "test@example.com", "wrongpassword")
-            assert exc.value.status_code == 401
+        result = AuthController.get_or_create_oauth_user(
+            db, provider="google", provider_id="gid",
+            email="john@example.com", name="John Doe"
+        )
+        assert result.username == "john_doe"

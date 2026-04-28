@@ -115,8 +115,6 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
     });
   };
 
-  
-
   if (loading) {
     return (
       <div style={{

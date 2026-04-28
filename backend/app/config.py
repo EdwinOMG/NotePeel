@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Google OAuth
     google_client_id: str = ""
 
+    # Microsoft OAuth (client ID only - uses MSAL popup flow)
+    microsoft_client_id: str = ""
+
     # Gemini AI
     gemini_api_key: str = ""
 

@@ -1,6 +1,4 @@
 import type { 
-  UserCreate, 
-  UserLogin, 
   AuthToken, 
   User, 
   Note, 
@@ -13,15 +11,21 @@ import type {
   FlashcardSet
 } from '../types';
 
+// Use VITE_API_URL env var for production (Render), fall back to current hostname for local dev
 const BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
 const API_URL = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
 
 const getToken = (): string | null => localStorage.getItem('token');
 
+// Handle token expiration - clear storage and redirect to login
 const handleTokenExpired = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('userEmail');
+  
+  // Store a message to show on login page
   sessionStorage.setItem('sessionExpired', 'true');
+  
+  // Redirect to login (force page reload to reset React state)
   window.location.href = '/';
 };
 
@@ -41,29 +45,18 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
   try {
     response = await fetch(`${API_URL}${url}`, { ...options, headers });
   } catch (networkError) {
+    // Network error - server unreachable
     console.error('Network error:', networkError);
     throw new Error('Cannot connect to server. Is the backend running on port 8000?');
   }
   
+  // Handle 401 Unauthorized (token expired or invalid)
   if (response.status === 401) {
-    if (!url.includes('/auth/login') && !url.includes('/auth/register')) {
+    // Don't redirect on auth attempts
+    if (!url.includes('/auth/google') && !url.includes('/auth/microsoft')) {
       handleTokenExpired();
       throw new Error('Session expired. Please log in again.');
     }
-  }
-
-  // ── Rate limit / feature gate responses ──────────────────────
-  // Surface the structured error detail so UI can read error.code
-  if (response.status === 429 || response.status === 403) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    // detail may be an object {code, message, ...} or a plain string
-    const detail = error.detail;
-    const message = typeof detail === 'object' ? detail.message : detail;
-    const err = new Error(message || 'Request failed') as any;
-    err.status = response.status;
-    err.code = typeof detail === 'object' ? detail.code : null;
-    err.detail = detail;
-    throw err;
   }
   
   if (!response.ok) {
@@ -71,6 +64,7 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
     throw new Error(error.detail || 'Request failed');
   }
   
+  // Handle 204 No Content (e.g., DELETE requests)
   if (response.status === 204) {
     return undefined as T;
   }
@@ -79,16 +73,13 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
 }
 
 export const authAPI = {
-  register: (data: UserCreate): Promise<User> => 
-    fetchWithAuth('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
-    
-  login: (data: UserLogin): Promise<AuthToken> =>
-    fetchWithAuth('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
-    
-  getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
-
   googleLogin: (credential: string): Promise<AuthToken> =>
     fetchWithAuth('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
+
+  microsoftLogin: (microsoft_id: string, email: string, name: string): Promise<AuthToken> =>
+    fetchWithAuth('/api/auth/microsoft', { method: 'POST', body: JSON.stringify({ microsoft_id, email, name }) }),
+
+  getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
 };
 
 export const notesAPI = {
@@ -108,20 +99,10 @@ export const notesAPI = {
       body: formData,
     });
     
+    // Handle 401 for file upload too
     if (response.status === 401) {
       handleTokenExpired();
       throw new Error('Session expired. Please log in again.');
-    }
-
-    if (response.status === 429 || response.status === 403) {
-      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
-      const detail = error.detail;
-      const message = typeof detail === 'object' ? detail.message : detail;
-      const err = new Error(message || 'Upload failed') as any;
-      err.status = response.status;
-      err.code = typeof detail === 'object' ? detail.code : null;
-      err.detail = detail;
-      throw err;
     }
     
     if (!response.ok) {
@@ -152,6 +133,7 @@ export const notesAPI = {
   delete: (id: number): Promise<{ message: string }> =>
     fetchWithAuth(`/api/notes/${id}`, { method: 'DELETE' }),
 
+  // AI Features
   generateFlashcards: (noteId: number, regenerate: boolean = false): Promise<FlashcardSet & { cached?: boolean }> =>
     fetchWithAuth(`/api/ai/flashcards/${noteId}?regenerate=${regenerate}`, { method: 'POST' }),
 
@@ -166,21 +148,6 @@ export const notesAPI = {
 
   getExplanations: (noteId: number): Promise<{ id: number; highlighted_text: string; explanation: string; created_at: string }[]> =>
     fetchWithAuth(`/api/ai/explanations/${noteId}`),
-};
-
-// ── Usage / billing ───────────────────────────────────────────────────────────
-export const usageAPI = {
-  getMyUsage: (): Promise<{
-    plan: 'free' | 'pro';
-    daily_token_budget: number;
-    tokens_used_today: number;
-    tokens_remaining_today: number;
-    requests_made_today: number;
-    max_requests_per_day: number;
-    allowed_features: string[];
-    pro_only_features: string[];
-    resets_at: string;
-  }> => fetchWithAuth('/api/users/me/usage'),
 };
 
 export const notebooksAPI = {
@@ -210,4 +177,9 @@ export const notebooksAPI = {
 
   getAvailableNotes: (notebookId: number): Promise<Note[]> =>
     fetchWithAuth(`/api/notebooks/${notebookId}/available-notes`),
+};
+
+export const usageAPI = {
+  getMyUsage: (): Promise<any> =>
+    fetchWithAuth('/api/users/me/usage'),
 };

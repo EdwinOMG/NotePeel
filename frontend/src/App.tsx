@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useIsMobile } from './hooks/useIsMobile';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import NotebooksPage from './pages/NotebooksPage';
 import NotebookView from './pages/NotebookView';
 import Dashboard from './pages/Dashboard';
@@ -15,7 +14,6 @@ import DesktopInstallBanner from './pages/DesktopInstallBanner';
 
 type Page = 
   | { type: 'login' }
-  | { type: 'register' }
   | { type: 'notebooks' }
   | { type: 'notebook'; notebookId: number }
   | { type: 'editor'; noteId: number; notebookId?: number }
@@ -23,19 +21,18 @@ type Page =
   | { type: 'mobileNote'; noteId: number };
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [currentPage, setCurrentPage] = useState<Page>({ type: 'login' });
   const [darkMode, setDarkMode] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const isMobile = useIsMobile();
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!token);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     const email = localStorage.getItem('userEmail');
     const savedDarkMode = localStorage.getItem('darkMode');
-
+    
     if (token && email) {
       setIsAuthenticated(true);
       setUserEmail(email);
@@ -55,12 +52,11 @@ function App() {
     }
   }, []);
 
-  const handleLogin = (newToken: string, email: string) => {
-    localStorage.setItem('token', newToken);
+  const handleLogin = (token: string, email: string) => {
+    localStorage.setItem('token', token);
     localStorage.setItem('userEmail', email);
     setIsAuthenticated(true);
     setUserEmail(email);
-    setToken(newToken);
     setCurrentPage({ type: 'notebooks' });
   };
 
@@ -69,7 +65,6 @@ function App() {
     localStorage.removeItem('userEmail');
     setIsAuthenticated(false);
     setUserEmail('');
-    setToken(null);
     setCurrentPage({ type: 'login' });
   };
 
@@ -90,21 +85,10 @@ function App() {
     );
   }
 
-  // Not authenticated - show login/register (same for both mobile and desktop)
+  // Not authenticated - show Google sign-in (same for both mobile and desktop)
   if (!isAuthenticated) {
-    if (currentPage.type === 'register') {
-      return (
-        <Register
-          onRegister={handleLogin}
-          onSwitchToLogin={() => setCurrentPage({ type: 'login' })}
-        />
-      );
-    }
     return (
-      <Login
-        onLogin={handleLogin}
-        onSwitchToRegister={() => setCurrentPage({ type: 'register' })}
-      />
+      <Login onLogin={handleLogin} />
     );
   }
 
@@ -192,12 +176,12 @@ function App() {
   // ─── DESKTOP ROUTING (unchanged) ─────────────────────────────
   
   // Wrap desktop pages with the install banner
-const withBanner = (page: React.ReactNode) => (
-  <>
-    <DesktopInstallBanner />
-    {page}
-  </>
-);
+  const withBanner = (page: React.ReactNode) => (
+    <>
+      <DesktopInstallBanner />
+      {page}
+    </>
+  );
 
   switch (currentPage.type) {
     case 'notebooks':

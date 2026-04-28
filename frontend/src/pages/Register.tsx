@@ -7,7 +7,7 @@ declare global {
       accounts: {
         id: {
           initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
-          renderButton: (element: HTMLElement, config: { theme?: string; size?: string; width?: number; text?: string }) => void;
+          renderButton: (element: HTMLElement, config: { theme?: string; size?: string; width?: number; text?: string; shape?: string }) => void;
         };
       };
     };
@@ -75,23 +75,7 @@ export default function Register({ onRegister, onSwitchToLogin }: RegisterProps)
   }, [initGoogleSignIn]);
 
   const handleSubmit = async () => {
-    if (!email || !username || !password) {
-      setError('Please fill in all fields');
-      return;
-    }
-    
-    setError('');
-    setLoading(true);
-    
-    try {
-      await authAPI.register({ email, username, password });
-      const loginResponse = await authAPI.login({ email, password });
-      onRegister(loginResponse.access_token, email);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
-    } finally {
-      setLoading(false);
-    }
+    setError('Email/password registration is not available. Please use Google Sign-In.');
   };
 
   return (

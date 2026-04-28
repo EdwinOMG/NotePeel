@@ -6,6 +6,7 @@ from app.database import get_db
 from app.schemas.note_schema import NoteUpdate
 from app.models.user import User
 from app.controllers.note_controller import note_controller
+from app.controllers.notebook_controller import notebook_controller
 from app.controllers.auth_controller import get_current_user
 
 router = APIRouter(prefix="/api/notes", tags=["Notes"])
@@ -16,11 +17,20 @@ async def upload_note(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     note_type: str = Query(default="default", enum=["default", "lecture", "meeting"]),
+    notebook_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Upload and process a note with Gemini AI."""
     note = await note_controller.create_note(db, file, current_user, title, note_type)
+
+    # Auto-add to notebook if notebook_id was provided
+    if notebook_id is not None:
+        try:
+            notebook_controller.add_note_to_notebook(db, notebook_id, note.id, current_user)
+        except Exception:
+            pass  # Don't fail the upload if notebook association fails
+
     return {
         "id": note.id,
         "title": note.title,

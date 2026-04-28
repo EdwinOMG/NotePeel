@@ -1,4 +1,7 @@
 
+
+import { UsageBanner } from '../components/UsageBanner';
+
 interface MobileSettingsProps {
   userEmail: string;
   onBack: () => void;
@@ -106,6 +109,22 @@ export default function MobileSettings({ userEmail, onBack, onLogout, darkMode, 
                 transform: darkMode ? 'translateX(22px)' : 'translateX(0)',
               }} />
             </div>
+          </div>
+        </div>
+
+        {/* Usage / Plan Section */}
+        <div style={{
+          background: theme.cardBg, borderRadius: '16px', overflow: 'hidden',
+          border: `1px solid ${theme.border}`, marginBottom: '16px',
+          animation: 'fadeIn 0.3s ease-out', animationDelay: '0.075s',
+        }}>
+          <div style={{ padding: '16px', borderBottom: `1px solid ${theme.border}` }}>
+            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.5px', fontFamily: "'Inter', sans-serif" }}>
+              Usage & Plan
+            </h3>
+          </div>
+          <div style={{ padding: '12px 16px' }}>
+            <UsageBanner token={localStorage.getItem('token')} darkMode={darkMode} />
           </div>
         </div>
 

@@ -12,7 +12,6 @@ psycopg2-binary>=2.9.9
 
 # Authentication
 pyjwt[crypto]>=2.8.0
-bcrypt>=4.1.0
 google-auth>=2.0.0
 
 # Validation
@@ -29,5 +28,5 @@ boto3>=1.28.0
 # Image Processing
 Pillow>=10.0.0
 
-# HTTP Client (for testing)
+# HTTP Client (for Microsoft OAuth + testing)
 httpx>=0.28.0

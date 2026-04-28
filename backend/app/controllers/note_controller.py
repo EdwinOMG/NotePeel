@@ -10,8 +10,6 @@ from app.models.user import User
 from app.schemas.note_schema import NoteUpdate
 from app.services.storage import upload_image, delete_image, get_fresh_url
 
-import sys
-sys.path.insert(0, '..')
 from ocr_service import extract_structured_text
 
 
@@ -97,19 +95,18 @@ class NoteController:
         title: Optional[str] = None,
         note_type: str = "default"
     ) -> Note:
-        # --- NEW: USAGE GATE ---
-        # 1. Check if they are allowed to scan and have budget available
-        # This will raise a 429 or 403 if they are over the limit
+        # --- USAGE GATE ---
         from app.services.usage_service import usage_service
         usage_service.assert_feature_allowed(user, "scan")
         usage_service.assert_budget_available(db, user, "scan")
-        # -----------------------
+        # ------------------
 
         file_content = await file.read()
 
-        # Compress image before uploading to R2
+        # Compress image before uploading to R2 (saves storage & bandwidth)
         compressed_content, compressed_mimetype = compress_image(file_content)
         
+        # Use compressed image for storage, but original for OCR (better quality)
         storage_result = upload_image(
             file_bytes=compressed_content,
             filename=file.filename or "upload.jpg",
@@ -130,19 +127,17 @@ class NoteController:
         db.refresh(note)
 
         try:
-            # Use ORIGINAL file_content for OCR
+            # Use ORIGINAL file_content for OCR (better quality = better text extraction)
             ocr_result = extract_structured_text(file_content, note_type=note_type)
 
             if ocr_result.get('error'):
                 raise Exception(ocr_result['error'])
 
-            # --- NEW: RECORD USAGE ---
-            # OCR succeeded. Deduct 1.0 request and estimated tokens.
-            # We use an estimate of 800 tokens for OCR if the service doesn't return count
+            # Record usage after successful OCR
             usage_service.record_usage(db, user, "scan", tokens_used=800, weight=1.0)
-            # -------------------------
 
             elements = ocr_result.get('elements', [])
+
             sorted_elements = sorted(
                 elements,
                 key=lambda e: (
@@ -166,7 +161,7 @@ class NoteController:
             db.commit()
             db.refresh(note)
 
-            # Auto-categorize (Internal call, doesn't count against user)
+            # Auto-categorize using Workers AI — runs after OCR, never blocks upload
             from app.controllers.ai_controller import ai_controller
             await ai_controller.auto_categorize(db, note)
 

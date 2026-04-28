@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { UsageBanner } from '../components/UsageBanner';
 
 interface SettingsPageProps {
   userEmail: string;
@@ -309,6 +310,33 @@ export default function SettingsPage({
                 </div>
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Usage & Plan Section */}
+        <div className="settings-card" style={{
+          background: theme.cardBg,
+          borderRadius: '16px',
+          border: `1px solid ${theme.border}`,
+          overflow: 'hidden',
+          transition: 'all 0.3s ease',
+          animationDelay: '0.15s'
+        }}>
+          <div style={{
+            padding: '20px 24px',
+            borderBottom: `1px solid ${theme.border}`
+          }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 600,
+              color: theme.text
+            }}>
+              Usage & Plan
+            </h3>
+          </div>
+          <div style={{ padding: '20px 24px' }}>
+            <UsageBanner token={localStorage.getItem('token')} darkMode={darkMode} />
           </div>
         </div>
 

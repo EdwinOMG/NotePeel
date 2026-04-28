@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Set
-from app.models.user import SubscriptionTier
 
 
 @dataclass(frozen=True)
@@ -11,14 +10,14 @@ class PlanLimits:
 
 
 # adjust free tier
-PLAN_LIMITS: dict[SubscriptionTier, PlanLimits] = {
-    SubscriptionTier.FREE: PlanLimits(
+PLAN_LIMITS: dict[str, PlanLimits] = {
+    "free": PlanLimits(
         daily_token_budget=10_000,
         max_requests_per_day=4,
         # flashcards not accessible to free users 
         allowed_features={"scan", "summarize", "explain"},
     ),
-    SubscriptionTier.PRO: PlanLimits(
+    "pro": PlanLimits(
         daily_token_budget=500_000,
         max_requests_per_day=1_000,
         allowed_features={"scan", "summarize", "explain", "flashcards"},
