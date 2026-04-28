@@ -12,7 +12,6 @@ import MobileNoteViewer from './pages/MobileNoteViewer';
 import MobileSettings from './pages/MobileSettings';
 import InstallPrompt from './pages/InstallPrompt';
 import DesktopInstallBanner from './pages/DesktopInstallBanner';
-import { UsageBanner } from './components/UsageBanner';
 
 type Page = 
   | { type: 'login' }
@@ -24,13 +23,13 @@ type Page =
   | { type: 'mobileNote'; noteId: number };
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [currentPage, setCurrentPage] = useState<Page>({ type: 'login' });
   const [darkMode, setDarkMode] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const isMobile = useIsMobile();
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!token);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
