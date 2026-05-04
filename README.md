@@ -18,8 +18,8 @@ NotePeel is a full-stack web application that converts handwritten notes into st
 - View the original image alongside the digitized version
 - Organize notes into **Notebooks** with color-coded covers
 - Search and filter notes by subject, topic, and tags
-- AI-powered **Summarize**, **Flashcard generation**, and **Explain selection** features
-- Free/Pro usage tiers with per-day request limits and a live usage banner
+- AI-powered **Summarize**, **Flashcard generation**, **Explain selection**, and **Note Chatbot** features
+- Three subscription tiers (Free, Pro, Premium) with per-day request limits and a live usage banner
 - Sign in with Google or Microsoft (OAuth only — no passwords)
 - Dark mode support across all views
 - Mobile-optimized interface for uploading and reviewing notes on the go
@@ -42,15 +42,16 @@ NotePeel is a full-stack web application that converts handwritten notes into st
                         │
            ┌────────────┼────────────────┐
            │            │                │
-┌──────────▼──────┐  ┌──▼────────────┐  ┌▼──────────────────────┐
-│   PostgreSQL    │  │ Cloudflare R2 │  │   Google Gemini API    │
-│  (SQLAlchemy)   │  │ Image Storage │  │ gemini-2.5-flash-lite  │
-└─────────────────┘  └───────────────┘  └────────────────────────┘
-                                         ┌────────────────────────┐
-                                         │  Cloudflare Workers AI │
-                                         │  summarize / flashcards│
-                                         │  explain / categorize  │
-                                         └────────────────────────┘
+┌──────────▼──────┐  ┌──▼────────────┐  ┌▼──────────────────────────────┐
+│   PostgreSQL    │  │ Cloudflare R2 │  │       Google Gemini API        │
+│  (SQLAlchemy)   │  │ Image Storage │  │   gemini-2.5-flash-lite (OCR) │
+└─────────────────┘  └───────────────┘  └───────────────────────────────┘
+                                         ┌───────────────────────────────┐
+                                         │    Cloudflare Workers AI      │
+                                         │  llama-3.3-70b-instruct-fp8  │
+                                         │  summarize / flashcards /     │
+                                         │  explain / chat               │
+                                         └───────────────────────────────┘
 ```
 
 ---
@@ -63,11 +64,10 @@ NotePeel is a full-stack web application that converts handwritten notes into st
 | Backend | Python 3.11+ + FastAPI |
 | ORM | SQLAlchemy |
 | Database | PostgreSQL (SQLite for local dev) |
-| AI / OCR | Google Gemini 2.5 Flash Lite |
-| AI Features | Workers AI / Claude (summarize, flashcards, explain) |
+| OCR / Scan | Google Gemini 2.5 Flash Lite |
+| AI Features | Cloudflare Workers AI — `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
 | Auth | JWT (PyJWT) + Google OAuth 2.0 + Microsoft OAuth 2.0 |
 | Image Storage | Cloudflare R2 (object storage) |
-| AI Workers | Cloudflare Workers AI |
 
 ---
 
@@ -82,7 +82,7 @@ User uploads image
 FastAPI receives file → saves Note record (status: PROCESSING)
         │
         ▼
-ocr_service.py sends image + structured prompt to Gemini API
+ocr_service.py sends image + structured prompt to Gemini 2.5 Flash Lite
         │
         ▼
 Gemini returns JSON: list of elements with type, content,
@@ -106,9 +106,9 @@ Structured HTML saved to DB (status: COMPLETED)
 Frontend loads HTML into contentEditable editor div
 ```
 
-### Gemini Prompt Design
+### Gemini Prompt Design (Scan / OCR)
 
-The OCR service uses a carefully engineered prompt (`LAYOUT_PROMPT`) that instructs Gemini to return a JSON object describing each visual region of the page. Each element includes:
+The OCR service uses a carefully engineered prompt (`LAYOUT_PROMPT`) that instructs Gemini 2.5 Flash Lite to return a JSON object describing each visual region of the page. AI features (summarize, flashcards, explain, chat) are handled separately by Cloudflare Workers AI running `llama-3.3-70b-instruct-fp8-fast`. Each OCR element includes:
 
 - **type** — header, paragraph, bullet_list, key_value, diagram, label
 - **content** — the transcribed text only (never visual descriptions)
@@ -189,6 +189,7 @@ All endpoints that require authentication expect an `Authorization: Bearer <toke
 | POST | `/api/ai/explain` | Bearer | Explain a highlighted text selection |
 | GET | `/api/ai/explanations/{note_id}` | Bearer | Retrieve cached explanations for a note |
 | POST | `/api/ai/categorize/{note_id}` | Bearer | Auto-categorize a note (subject/topic/tags) |
+| POST | `/api/ai/chat/{note_id}` | Bearer | Chat with a note — ask questions about its content (Premium) |
 
 ### Utility
 
@@ -207,7 +208,7 @@ All endpoints that require authentication expect an `Authorization: Bearer <toke
 | id | Integer | Primary key |
 | email | String | Unique, indexed |
 | username | String | Unique, indexed |
-| hashed_password | String | null for OAuth-only users |
+| plan | Enum | `free` / `pro` / `premium` |
 | is_active | Boolean | Account status |
 | created_at | DateTime | Registration timestamp |
 
@@ -248,7 +249,7 @@ All endpoints that require authentication expect an `Authorization: Bearer <toke
 
 | View | Description |
 |---|---|
-| `Login` / `Register` | Email/password auth and Google OAuth sign-in |
+| `Login` | Google and Microsoft OAuth sign-in (no passwords) |
 | `NotebooksPage` | Desktop notebook grid with color-coded covers |
 | `NotebookView` | Notes list within a notebook; upload or add existing notes |
 | `Dashboard` | Full rich-text editor with menu bar, toolbar, AI panel, and notes sidebar |
@@ -266,8 +267,19 @@ The Dashboard is a full document editor built in React without any UI framework.
 - **Export** — PDF via browser print dialog; TXT and HTML via Blob URL download
 - **Notes panel** — search, folder filter, tag filter, and inline folder assignment
 - **Note Info panel** — edit subject, topic, and tags without leaving the editor
-- **AI panel** — Summarize, Flashcard generation, and Explain Selection (with highlight picker and explanation cache)
-- **Free/Pro gates** — `FeatureGate` component blurs Pro features for free users; `UsageBanner` shows a live progress bar of daily request usage
+- **AI panel** — Summarize, Flashcard generation, Explain Selection (with highlight picker and explanation cache), and Note Chatbot for Q&A about note content
+- **Subscription gates** — `FeatureGate` component blurs gated features based on plan; `UsageBanner` shows a live progress bar of daily request usage
+
+### Subscription Tiers
+
+| Feature | Free | Pro | Premium |
+|---|---|---|---|
+| Note scanning (OCR) | ✅ Limited | ✅ More requests | ✅ Unlimited |
+| Summarize | ❌ | ✅ | ✅ |
+| Flashcards | ❌ | ✅ | ✅ |
+| Explain selection | ❌ | ✅ | ✅ |
+| Note Chatbot | ❌ | ❌ | ✅ |
+| Daily request limit | Low | Higher | Unlimited |
 
 ### Keyboard Shortcuts
 
@@ -311,3 +323,7 @@ Sign in with your Google or Microsoft account to get started — no account crea
 - **Collaborative notebooks** — notes and notebooks are currently single-user only; real-time sharing and collaboration is a planned future direction.
 
 ---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
