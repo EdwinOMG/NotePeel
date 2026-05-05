@@ -25,7 +25,7 @@ def get_db():
 def create_tables():
     """Create all database tables and add any missing columns."""
     from app.models.user import User
-    from app.models.usage import DailyUsage
+    from app.models.usage import DailyUsage, MonthlyAIUsage, MonthlyOCRUsage
     Base.metadata.create_all(bind=engine)
 
     # ── Add columns that may be missing from existing tables ──────
@@ -34,6 +34,8 @@ def create_tables():
     from sqlalchemy import text, inspect
 
     inspector = inspect(engine)
+
+    # -- users table migrations --
     if "users" in inspector.get_table_names():
         existing_columns = {col["name"] for col in inspector.get_columns("users")}
         with engine.begin() as conn:
@@ -47,3 +49,13 @@ def create_tables():
                     "ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR(255) UNIQUE"
                 ))
                 print("✅ Added stripe_subscription_id column to users table")
+
+    # -- daily_usage table migrations --
+    if "daily_usage" in inspector.get_table_names():
+        existing_columns = {col["name"] for col in inspector.get_columns("daily_usage")}
+        with engine.begin() as conn:
+            if "ocr_scans" not in existing_columns:
+                conn.execute(text(
+                    "ALTER TABLE daily_usage ADD COLUMN ocr_scans INTEGER NOT NULL DEFAULT 0"
+                ))
+                print("✅ Added ocr_scans column to daily_usage table")
