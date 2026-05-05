@@ -1,6 +1,4 @@
 import type { 
-  UserCreate, 
-  UserLogin, 
   AuthToken, 
   User, 
   Note, 
@@ -9,11 +7,14 @@ import type {
   NotebookWithNotes,
   NotebookCreate,
   NotebookUpdate,
+  Collaborator,
   Categories,
   FlashcardSet
 } from '../types';
 
-const API_URL = 'http://127.0.0.1:8000';
+// Use VITE_API_URL env var for production (Render), fall back to current hostname for local dev
+const BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
+const API_URL = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
 
 const getToken = (): string | null => localStorage.getItem('token');
 
@@ -52,8 +53,8 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
   
   // Handle 401 Unauthorized (token expired or invalid)
   if (response.status === 401) {
-    // Don't redirect on login/register attempts
-    if (!url.includes('/auth/login') && !url.includes('/auth/register')) {
+    // Don't redirect on auth attempts
+    if (!url.includes('/auth/google') && !url.includes('/auth/microsoft')) {
       handleTokenExpired();
       throw new Error('Session expired. Please log in again.');
     }
@@ -73,16 +74,13 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
 }
 
 export const authAPI = {
-  register: (data: UserCreate): Promise<User> => 
-    fetchWithAuth('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
-    
-  login: (data: UserLogin): Promise<AuthToken> =>
-    fetchWithAuth('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
-    
-  getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
-
   googleLogin: (credential: string): Promise<AuthToken> =>
     fetchWithAuth('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
+
+  microsoftLogin: (microsoft_id: string, email: string, name: string): Promise<AuthToken> =>
+    fetchWithAuth('/api/auth/microsoft', { method: 'POST', body: JSON.stringify({ microsoft_id, email, name }) }),
+
+  getMe: (): Promise<User> => fetchWithAuth('/api/auth/me'),
 };
 
 export const notesAPI = {
@@ -113,6 +111,37 @@ export const notesAPI = {
       throw new Error(error.detail || 'Upload failed');
     }
     
+    return response.json();
+  },
+
+  uploadMulti: async (files: File[], noteType: string = 'default', notebookId?: number): Promise<Note> => {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+
+    const token = getToken();
+    let url = `${API_URL}/api/notes/upload-multi?note_type=${noteType}`;
+    if (notebookId) {
+      url += `&notebook_id=${notebookId}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (response.status === 401) {
+      handleTokenExpired();
+      throw new Error('Session expired. Please log in again.');
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || 'Upload failed');
+    }
+
     return response.json();
   },
   
@@ -151,6 +180,13 @@ export const notesAPI = {
 
   getExplanations: (noteId: number): Promise<{ id: number; highlighted_text: string; explanation: string; created_at: string }[]> =>
     fetchWithAuth(`/api/ai/explanations/${noteId}`),
+
+  // Chat (Premium only)
+  chat: (noteId: number, messages: { role: string; content: string }[]): Promise<{ role: string; content: string; note_id: number }> =>
+    fetchWithAuth(`/api/chat/${noteId}`, {
+      method: 'POST',
+      body: JSON.stringify({ note_id: noteId, messages }),
+    }),
 };
 
 export const notebooksAPI = {
@@ -180,4 +216,42 @@ export const notebooksAPI = {
 
   getAvailableNotes: (notebookId: number): Promise<Note[]> =>
     fetchWithAuth(`/api/notebooks/${notebookId}/available-notes`),
+
+  // Collaboration
+  getCollaborators: (notebookId: number): Promise<Collaborator[]> =>
+    fetchWithAuth(`/api/notebooks/${notebookId}/collaborators`),
+
+  addCollaborator: (notebookId: number, email: string, role: string = 'viewer'): Promise<Collaborator> =>
+    fetchWithAuth(`/api/notebooks/${notebookId}/collaborators`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    }),
+
+  updateCollaboratorRole: (notebookId: number, collaboratorId: number, role: string): Promise<Collaborator> =>
+    fetchWithAuth(`/api/notebooks/${notebookId}/collaborators/${collaboratorId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    }),
+
+  removeCollaborator: (notebookId: number, collaboratorId: number): Promise<{ message: string }> =>
+    fetchWithAuth(`/api/notebooks/${notebookId}/collaborators/${collaboratorId}`, { method: 'DELETE' }),
+};
+
+export const usageAPI = {
+  getMyUsage: (): Promise<any> =>
+    fetchWithAuth('/api/users/me/usage'),
+};
+
+export const stripeAPI = {
+  createCheckout: (price_id: string): Promise<{ checkout_url: string }> =>
+    fetchWithAuth('/api/stripe/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ price_id }),
+    }),
+
+  createPortal: (): Promise<{ portal_url: string }> =>
+    fetchWithAuth('/api/stripe/portal', { method: 'POST' }),
+
+  cancelSubscription: (): Promise<{ message: string }> =>
+    fetchWithAuth('/api/stripe/cancel', { method: 'POST' }),
 };

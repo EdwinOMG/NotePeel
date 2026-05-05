@@ -7,12 +7,27 @@ import io
 
 from app.models.note import Note, ProcessingStatus
 from app.models.user import User
+from app.models.notebook import note_notebooks, NotebookCollaborator
 from app.schemas.note_schema import NoteUpdate
 from app.services.storage import upload_image, delete_image, get_fresh_url
 
-import sys
-sys.path.insert(0, '..')
 from ocr_service import extract_structured_text
+
+MAX_PAGES = 10  # Max pages per PDF or images per multi-upload
+
+
+def pdf_to_images(pdf_bytes: bytes) -> list[bytes]:
+    """Convert each page of a PDF to a PNG image (bytes). Returns list of image bytes."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    images = []
+    for page_num in range(min(len(doc), MAX_PAGES)):
+        page = doc.load_page(page_num)
+        # Render at 2x for good OCR quality
+        pix = page.get_pixmap(dpi=200)
+        images.append(pix.tobytes("png"))
+    doc.close()
+    return images
 
 
 def clean(text: str) -> str:
@@ -97,7 +112,144 @@ class NoteController:
         title: Optional[str] = None,
         note_type: str = "default"
     ) -> Note:
+        # --- USAGE GATE ---
+        from app.services.usage_service import usage_service
+        usage_service.assert_feature_allowed(user, "scan")
+        usage_service.assert_ocr_allowed(db, user)
+        # ------------------
+
         file_content = await file.read()
+        filename = file.filename or "upload"
+        is_pdf = (
+            filename.lower().endswith('.pdf')
+            or (file.content_type or '').lower() == 'application/pdf'
+            or file_content[:5] == b'%PDF-'
+        )
+
+        if is_pdf:
+            return await NoteController._create_note_from_pdf(
+                db, file_content, user, title or filename, note_type
+            )
+        else:
+            return await NoteController._create_note_from_image(
+                db, file_content, filename, user, title, note_type
+            )
+
+    @staticmethod
+    async def create_note_multi(
+        db: Session,
+        files: list[UploadFile],
+        user: User,
+        title: Optional[str] = None,
+        note_type: str = "default"
+    ) -> Note:
+        """Create a single note from multiple image files. Each image = 1 page/scan."""
+        from app.services.usage_service import usage_service
+        usage_service.assert_feature_allowed(user, "scan")
+
+        if len(files) > MAX_PAGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Maximum {MAX_PAGES} images per upload."
+            )
+
+        # Check OCR budget for ALL pages up front
+        for _ in files:
+            usage_service.assert_ocr_allowed(db, user)
+
+        images_bytes: list[bytes] = []
+        for f in files:
+            images_bytes.append(await f.read())
+
+        # Use first image for storage/thumbnail
+        first_bytes = images_bytes[0]
+        first_filename = files[0].filename or "upload.jpg"
+        compressed_first, compressed_mime = compress_image(first_bytes)
+
+        storage_result = upload_image(
+            file_bytes=compressed_first,
+            filename=first_filename,
+            mimetype=compressed_mime
+        )
+
+        note = Note(
+            title=title or f"{first_filename} (+{len(files)-1} more)" if len(files) > 1 else title or first_filename,
+            image_key=storage_result["key"],
+            image_url=storage_result["url"],
+            image_filename=first_filename,
+            image_mimetype=compressed_mime,
+            status=ProcessingStatus.PROCESSING,
+            owner_id=user.id
+        )
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+
+        try:
+            all_raw_texts = []
+            all_html_parts = []
+
+            for idx, img_bytes in enumerate(images_bytes):
+                ocr_result = extract_structured_text(img_bytes, note_type=note_type)
+                if ocr_result.get('error'):
+                    raise Exception(f"Page {idx+1}: {ocr_result['error']}")
+
+                # Record usage per page
+                usage_service.record_ocr_scan(db, user)
+
+                raw_text = ocr_result.get('raw_text', '')
+                all_raw_texts.append(raw_text)
+
+                elements = ocr_result.get('elements', [])
+                sorted_elements = sorted(
+                    elements,
+                    key=lambda e: (
+                        e.get('position', {}).get('y_percent', 0),
+                        e.get('position', {}).get('x_percent', 0)
+                    )
+                )
+                cleaned = NoteController._clean_elements(sorted_elements)
+                page_html = NoteController._build_html(cleaned)
+                if not page_html:
+                    page_html = raw_text.replace('\n', '<br>')
+
+                if len(images_bytes) > 1:
+                    all_html_parts.append(
+                        f'<div style="border-bottom:2px dashed #FFB74D;padding-bottom:16px;margin-bottom:20px;">'
+                        f'<div style="font-size:11px;color:#8D6E63;margin-bottom:8px;font-weight:600;">📄 Page {idx+1} of {len(images_bytes)}</div>'
+                        f'{page_html}</div>'
+                    )
+                else:
+                    all_html_parts.append(page_html)
+
+            note.raw_text = '\n\n--- Page Break ---\n\n'.join(all_raw_texts) if len(all_raw_texts) > 1 else all_raw_texts[0] if all_raw_texts else ''
+            note.structured_text = ''.join(all_html_parts)
+            note.status = ProcessingStatus.COMPLETED
+            note.processed_at = datetime.utcnow()
+            db.commit()
+            db.refresh(note)
+
+            from app.controllers.ai_controller import ai_controller
+            await ai_controller.auto_categorize(db, note)
+
+        except Exception as e:
+            note.status = ProcessingStatus.FAILED
+            note.error_message = str(e)
+            db.commit()
+            db.refresh(note)
+
+        return note
+
+    @staticmethod
+    async def _create_note_from_image(
+        db: Session,
+        file_content: bytes,
+        filename: str,
+        user: User,
+        title: Optional[str],
+        note_type: str
+    ) -> Note:
+        from app.services.usage_service import usage_service
 
         # Compress image before uploading to R2 (saves storage & bandwidth)
         compressed_content, compressed_mimetype = compress_image(file_content)
@@ -105,15 +257,15 @@ class NoteController:
         # Use compressed image for storage, but original for OCR (better quality)
         storage_result = upload_image(
             file_bytes=compressed_content,
-            filename=file.filename or "upload.jpg",
+            filename=filename,
             mimetype=compressed_mimetype
         )
 
         note = Note(
-            title=title or file.filename,
+            title=title or filename,
             image_key=storage_result["key"],
             image_url=storage_result["url"],
-            image_filename=file.filename or "uploaded_image",
+            image_filename=filename,
             image_mimetype=compressed_mimetype,
             status=ProcessingStatus.PROCESSING,
             owner_id=user.id
@@ -128,6 +280,9 @@ class NoteController:
 
             if ocr_result.get('error'):
                 raise Exception(ocr_result['error'])
+
+            # Record usage after successful OCR
+            usage_service.record_ocr_scan(db, user)
 
             elements = ocr_result.get('elements', [])
 
@@ -155,6 +310,110 @@ class NoteController:
             db.refresh(note)
 
             # Auto-categorize using Workers AI — runs after OCR, never blocks upload
+            from app.controllers.ai_controller import ai_controller
+            await ai_controller.auto_categorize(db, note)
+
+        except Exception as e:
+            note.status = ProcessingStatus.FAILED
+            note.error_message = str(e)
+            db.commit()
+            db.refresh(note)
+
+        return note
+
+    @staticmethod
+    async def _create_note_from_pdf(
+        db: Session,
+        pdf_bytes: bytes,
+        user: User,
+        title: str,
+        note_type: str
+    ) -> Note:
+        """Extract pages from PDF, OCR each page, combine into one note."""
+        from app.services.usage_service import usage_service
+
+        try:
+            page_images = pdf_to_images(pdf_bytes)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to process PDF: {str(e)}"
+            )
+
+        if not page_images:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="PDF has no pages."
+            )
+
+        # Check OCR budget for ALL pages upfront
+        for _ in page_images:
+            usage_service.assert_ocr_allowed(db, user)
+
+        # Use first page image for storage thumbnail
+        compressed_first, compressed_mime = compress_image(page_images[0])
+        storage_result = upload_image(
+            file_bytes=compressed_first,
+            filename=title.replace('.pdf', '.jpg'),
+            mimetype=compressed_mime
+        )
+
+        note = Note(
+            title=title,
+            image_key=storage_result["key"],
+            image_url=storage_result["url"],
+            image_filename=title,
+            image_mimetype=compressed_mime,
+            status=ProcessingStatus.PROCESSING,
+            owner_id=user.id
+        )
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+
+        try:
+            all_raw_texts = []
+            all_html_parts = []
+
+            for idx, img_bytes in enumerate(page_images):
+                ocr_result = extract_structured_text(img_bytes, note_type=note_type)
+                if ocr_result.get('error'):
+                    raise Exception(f"Page {idx+1}: {ocr_result['error']}")
+
+                usage_service.record_ocr_scan(db, user)
+
+                raw_text = ocr_result.get('raw_text', '')
+                all_raw_texts.append(raw_text)
+
+                elements = ocr_result.get('elements', [])
+                sorted_elements = sorted(
+                    elements,
+                    key=lambda e: (
+                        e.get('position', {}).get('y_percent', 0),
+                        e.get('position', {}).get('x_percent', 0)
+                    )
+                )
+                cleaned = NoteController._clean_elements(sorted_elements)
+                page_html = NoteController._build_html(cleaned)
+                if not page_html:
+                    page_html = raw_text.replace('\n', '<br>')
+
+                if len(page_images) > 1:
+                    all_html_parts.append(
+                        f'<div style="border-bottom:2px dashed #FFB74D;padding-bottom:16px;margin-bottom:20px;">'
+                        f'<div style="font-size:11px;color:#8D6E63;margin-bottom:8px;font-weight:600;">📄 Page {idx+1} of {len(page_images)}</div>'
+                        f'{page_html}</div>'
+                    )
+                else:
+                    all_html_parts.append(page_html)
+
+            note.raw_text = '\n\n--- Page Break ---\n\n'.join(all_raw_texts) if len(all_raw_texts) > 1 else all_raw_texts[0] if all_raw_texts else ''
+            note.structured_text = ''.join(all_html_parts)
+            note.status = ProcessingStatus.COMPLETED
+            note.processed_at = datetime.utcnow()
+            db.commit()
+            db.refresh(note)
+
             from app.controllers.ai_controller import ai_controller
             await ai_controller.auto_categorize(db, note)
 
@@ -443,16 +702,32 @@ class NoteController:
 
     @staticmethod
     def get_note(db: Session, note_id: int, user: User) -> Note:
+        # First try: user owns the note directly
         note = db.query(Note).filter(
             Note.id == note_id,
             Note.owner_id == user.id
         ).first()
-        if not note:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Note not found"
-            )
-        return note
+        if note:
+            return note
+
+        # Second try: note is in a notebook the user collaborates on
+        note = db.query(Note).filter(Note.id == note_id).first()
+        if note:
+            # Check if note is in any notebook where user is a collaborator
+            shared_access = db.query(note_notebooks.c.note_id).join(
+                NotebookCollaborator,
+                NotebookCollaborator.notebook_id == note_notebooks.c.notebook_id
+            ).filter(
+                note_notebooks.c.note_id == note_id,
+                NotebookCollaborator.user_id == user.id
+            ).first()
+            if shared_access:
+                return note
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Note not found"
+        )
 
     @staticmethod
     def update_note(db: Session, note_id: int, update_data: NoteUpdate, user: User) -> Note:

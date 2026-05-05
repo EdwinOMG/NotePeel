@@ -7,7 +7,7 @@ declare global {
       accounts: {
         id: {
           initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
-          renderButton: (element: HTMLElement, config: { theme?: string; size?: string; width?: number; text?: string }) => void;
+          renderButton: (element: HTMLElement, config: { theme?: string; size?: string; width?: number; text?: string; shape?: string }) => void;
         };
       };
     };
@@ -75,23 +75,7 @@ export default function Register({ onRegister, onSwitchToLogin }: RegisterProps)
   }, [initGoogleSignIn]);
 
   const handleSubmit = async () => {
-    if (!email || !username || !password) {
-      setError('Please fill in all fields');
-      return;
-    }
-    
-    setError('');
-    setLoading(true);
-    
-    try {
-      await authAPI.register({ email, username, password });
-      const loginResponse = await authAPI.login({ email, password });
-      onRegister(loginResponse.access_token, email);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
-    } finally {
-      setLoading(false);
-    }
+    setError('Email/password registration is not available. Please use Google Sign-In.');
   };
 
   return (
@@ -111,7 +95,7 @@ export default function Register({ onRegister, onSwitchToLogin }: RegisterProps)
         maxWidth: '400px'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <div style={{ fontSize: '60px', marginBottom: '10px' }}>🐵🍌</div>
+          <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '80px', height: '80px', objectFit: 'contain', marginBottom: '10px' }} />
           <h1 style={{ margin: '0 0 5px', color: '#5D4037' }}>NotePeel</h1>
           <p style={{ color: '#8D6E63', margin: 0 }}>Join the troop!</p>
         </div>

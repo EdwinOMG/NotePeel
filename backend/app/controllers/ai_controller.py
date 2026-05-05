@@ -49,7 +49,7 @@ class AIController:
                 }
 
         # Generate new flashcards via Workers AI
-        cards_data = await generate_flashcards(note.raw_text)
+        cards_data, _tokens = await generate_flashcards(note.raw_text)
 
         # Delete old set if regenerating
         db.query(FlashcardSet).filter(
@@ -112,7 +112,7 @@ class AIController:
                 return {"summary": existing.summary, "cached": True}
 
         # Generate via Workers AI
-        summary_text = await summarize_note(note.raw_text)
+        summary_text, _tokens = await summarize_note(note.raw_text)
 
         # Upsert — delete old, insert new
         db.query(AISummary).filter(
@@ -175,7 +175,7 @@ class AIController:
                     context = raw[:600]
 
         # Generate via Workers AI
-        explanation_text = await explain_highlight(highlighted_text, context)
+        explanation_text, _tokens = await explain_highlight(highlighted_text, context)
 
         # Cache it
         explanation = AIExplanation(

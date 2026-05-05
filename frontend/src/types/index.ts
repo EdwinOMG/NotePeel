@@ -3,19 +3,9 @@ export interface User {
   id: number;
   email: string;
   username: string;
+  profile_picture?: string;
   is_active: boolean;
   created_at: string;
-}
-
-export interface UserCreate {
-  email: string;
-  username: string;
-  password: string;
-}
-
-export interface UserLogin {
-  email: string;
-  password: string;
 }
 
 export interface AuthToken {
@@ -72,13 +62,29 @@ export interface Notebook {
   name: string;
   color: string;
   owner_id: number;
+  owner_email?: string;
+  owner_username?: string;
   created_at: string;
   updated_at: string;
   note_count: number;
+  collaborator_count?: number;
+  role?: string;        // 'owner' | 'editor' | 'viewer'
+  is_shared?: boolean;
+}
+
+export interface Collaborator {
+  id: number;
+  user_id: number;
+  email: string;
+  username: string;
+  profile_picture?: string;
+  role: string;  // 'viewer' | 'editor'
+  added_at: string;
 }
 
 export interface NotebookWithNotes extends Notebook {
   notes: Note[];
+  collaborators?: Collaborator[];
 }
 
 export interface NotebookCreate {

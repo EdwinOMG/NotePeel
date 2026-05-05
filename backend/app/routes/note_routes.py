@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 
@@ -6,6 +6,7 @@ from app.database import get_db
 from app.schemas.note_schema import NoteUpdate
 from app.models.user import User
 from app.controllers.note_controller import note_controller
+from app.controllers.notebook_controller import notebook_controller
 from app.controllers.auth_controller import get_current_user
 
 router = APIRouter(prefix="/api/notes", tags=["Notes"])
@@ -16,11 +17,47 @@ async def upload_note(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     note_type: str = Query(default="default", enum=["default", "lecture", "meeting"]),
+    notebook_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload and process a note with Gemini AI."""
+    """Upload and process a note (image or PDF) with Gemini AI."""
     note = await note_controller.create_note(db, file, current_user, title, note_type)
+
+    # Auto-add to notebook if notebook_id was provided
+    if notebook_id is not None:
+        try:
+            notebook_controller.add_note_to_notebook(db, notebook_id, note.id, current_user)
+        except Exception:
+            pass  # Don't fail the upload if notebook association fails
+
+    return {
+        "id": note.id,
+        "title": note.title,
+        "image_filename": note.image_filename,
+        "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
+        "created_at": note.created_at
+    }
+
+
+@router.post("/upload-multi")
+async def upload_note_multi(
+    files: List[UploadFile] = File(...),
+    title: Optional[str] = Form(None),
+    note_type: str = Query(default="default", enum=["default", "lecture", "meeting"]),
+    notebook_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload multiple images as a single note. Each image = 1 scan."""
+    note = await note_controller.create_note_multi(db, files, current_user, title, note_type)
+
+    if notebook_id is not None:
+        try:
+            notebook_controller.add_note_to_notebook(db, notebook_id, note.id, current_user)
+        except Exception:
+            pass
+
     return {
         "id": note.id,
         "title": note.title,

@@ -36,3 +36,27 @@ class AddNoteToNotebook(BaseModel):
 
 class AddNotesToNotebook(BaseModel):
     note_ids: List[int]
+
+
+# ── Collaboration schemas ──────────────────────────────────────
+
+class AddCollaborator(BaseModel):
+    email: str
+    role: str = "viewer"  # "viewer" or "editor"
+
+
+class UpdateCollaboratorRole(BaseModel):
+    role: str  # "viewer" or "editor"
+
+
+class CollaboratorResponse(BaseModel):
+    id: int
+    user_id: int
+    email: str
+    username: str
+    profile_picture: Optional[str] = None
+    role: str
+    added_at: datetime
+
+    class Config:
+        from_attributes = True

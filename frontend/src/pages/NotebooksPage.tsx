@@ -204,7 +204,7 @@ export default function NotebooksPage({ userEmail, onLogout, onOpenNotebook, onO
           alignItems: 'center'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '36px' }}>🐵🍌</span>
+            <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
             <h1 style={{
               margin: 0,
               fontSize: '24px',
@@ -617,6 +617,26 @@ export default function NotebooksPage({ userEmail, onLogout, onOpenNotebook, onO
                   }}>
                     {notebook.note_count} {notebook.note_count === 1 ? 'note' : 'notes'}
                   </div>
+
+                  {/* Shared indicator badge */}
+                  {notebook.is_shared && (
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '8px',
+                      right: '8px',
+                      background: 'rgba(76, 175, 80, 0.9)',
+                      padding: '3px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                    }}>
+                      👥 {notebook.role === 'owner' ? (notebook.collaborator_count || 0) : notebook.role}
+                    </div>
+                  )}
                 </div>
 
                 {/* Content */}
@@ -639,6 +659,16 @@ export default function NotebooksPage({ userEmail, onLogout, onOpenNotebook, onO
                   }}>
                     {notebook.name}
                   </h3>
+                  {notebook.role && notebook.role !== 'owner' && notebook.owner_username && (
+                    <p style={{
+                      margin: '0 0 2px',
+                      fontSize: '10px',
+                      color: '#4CAF50',
+                      fontWeight: 500,
+                    }}>
+                      shared by {notebook.owner_username}
+                    </p>
+                  )}
                   <p style={{
                     margin: 0,
                     fontSize: '11px',

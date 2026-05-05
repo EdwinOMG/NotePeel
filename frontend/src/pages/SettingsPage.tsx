@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { UsageBanner } from '../components/UsageBanner';
+import { useUsage } from '../hooks/useUsage';
 
 interface SettingsPageProps {
   userEmail: string;
@@ -6,6 +8,7 @@ interface SettingsPageProps {
   onLogout: () => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
+  onNavigate?: (page: string) => void;
 }
 
 export default function SettingsPage({ 
@@ -13,9 +16,12 @@ export default function SettingsPage({
   onBack, 
   onLogout, 
   darkMode, 
-  onToggleDarkMode 
+  onToggleDarkMode,
+  onNavigate,
 }: SettingsPageProps) {
   const [message, setMessage] = useState('');
+  const { usage } = useUsage(localStorage.getItem('token'));
+  const currentPlan = usage?.plan || 'free';
 
   // Theme colors
   const theme = {
@@ -86,7 +92,7 @@ export default function SettingsPage({
             >
               ← Back
             </button>
-            <span style={{ fontSize: '36px' }}>🐵🍌</span>
+            <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
             <h1 style={{
               margin: 0,
               fontSize: '24px',
@@ -312,6 +318,162 @@ export default function SettingsPage({
           </div>
         </div>
 
+        {/* Usage & Plan Section */}
+        <div className="settings-card" style={{
+          background: theme.cardBg,
+          borderRadius: '16px',
+          border: `1px solid ${theme.border}`,
+          marginBottom: '24px',
+          overflow: 'hidden',
+          transition: 'all 0.3s ease',
+          animationDelay: '0.15s'
+        }}>
+          <div style={{
+            padding: '20px 24px',
+            borderBottom: `1px solid ${theme.border}`
+          }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 600,
+              color: theme.text
+            }}>
+              Usage & Plan
+            </h3>
+          </div>
+          <div style={{ padding: '20px 24px' }}>
+            {/* Current Plan Display */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '16px',
+              padding: '14px 16px',
+              background: darkMode ? '#2d2d4a' : '#f9fafb',
+              borderRadius: '12px',
+              border: `1px solid ${theme.border}`,
+            }}>
+              <div>
+                <p style={{ margin: '0 0 2px', fontSize: '13px', color: theme.textSecondary }}>
+                  Your plan
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{
+                    fontSize: '17px',
+                    fontWeight: 700,
+                    color: theme.text,
+                    textTransform: 'capitalize',
+                  }}>
+                    {currentPlan}
+                  </span>
+                  {(currentPlan === 'pro' || currentPlan === 'premium') && (
+                    <span style={{
+                      background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                      color: '#5D4037',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}>
+                      Active
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => onNavigate?.('plans')}
+                style={{
+                  padding: '8px 16px',
+                  background: (currentPlan === 'pro' || currentPlan === 'premium')
+                    ? (darkMode ? '#3f3f5a' : '#f3f4f6')
+                    : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                  color: (currentPlan === 'pro' || currentPlan === 'premium')
+                    ? theme.textSecondary
+                    : '#5D4037',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+              >
+                {(currentPlan === 'pro' || currentPlan === 'premium') ? 'Manage Plan' : 'Upgrade'}
+              </button>
+            </div>
+
+            {/* Usage Banner — no upgrade button here since it's already above */}
+            <UsageBanner
+              token={localStorage.getItem('token')}
+              darkMode={darkMode}
+            />
+          </div>
+        </div>
+
+        {/* Legal & Support Section */}
+        <div className="settings-card" style={{
+          background: theme.cardBg,
+          borderRadius: '16px',
+          border: `1px solid ${theme.border}`,
+          marginBottom: '24px',
+          overflow: 'hidden',
+          transition: 'all 0.3s ease',
+          animationDelay: '0.18s'
+        }}>
+          <div style={{
+            padding: '20px 24px',
+            borderBottom: `1px solid ${theme.border}`
+          }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 600,
+              color: theme.text
+            }}>
+              Legal & Support
+            </h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {[
+              { label: '📄 Privacy Policy', page: 'privacy' },
+              { label: '📋 Terms of Service', page: 'terms' },
+              { label: '💬 Contact Us', page: 'contact' },
+            ].map((item, i, arr) => (
+              <button
+                key={item.page}
+                onClick={() => onNavigate?.(item.page)}
+                style={{
+                  padding: '16px 24px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: i < arr.length - 1 ? `1px solid ${theme.border}` : 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: '15px',
+                  color: theme.text,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                <span>{item.label}</span>
+                <span style={{ color: theme.textSecondary, fontSize: '14px' }}>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* About Section */}
         <div className="settings-card" style={{
           background: theme.cardBg,
@@ -342,7 +504,7 @@ export default function SettingsPage({
               gap: '12px',
               marginBottom: '16px'
             }}>
-              <span style={{ fontSize: '32px' }}>🐵🍌</span>
+              <img src="/monkey-loading.png" alt="NotePeel" style={{ width: '38px', height: '38px', objectFit: 'contain' }} />
               <div>
                 <p style={{
                   margin: '0 0 2px',

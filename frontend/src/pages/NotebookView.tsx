@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { notebooksAPI, notesAPI } from '../services/api';
-import type { NotebookWithNotes, Note } from '../types';
+import type { NotebookWithNotes, Note, Collaborator } from '../types';
 
 interface NotebookViewProps {
   notebookId: number;
@@ -10,7 +10,7 @@ interface NotebookViewProps {
   darkMode?: boolean;
 }
 
-export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote, darkMode = false }: NotebookViewProps) {
+export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateNote: _onCreateNote, darkMode = false }: NotebookViewProps) {
   const [notebook, setNotebook] = useState<NotebookWithNotes | null>(null);
   const [availableNotes, setAvailableNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +20,10 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
   const [uploading, setUploading] = useState(false);
   const [noteType, setNoteType] = useState<'default' | 'lecture' | 'meeting'>('default');
   const [showPeelingModal, setShowPeelingModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareRole, setShareRole] = useState<'viewer' | 'editor'>('viewer');
+  const [shareLoading, setShareLoading] = useState(false);
 
   // Theme colors
   const theme = {
@@ -82,14 +86,19 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setUploading(true);
     setShowPeelingModal(true);
 
     try {
-      const newNote = await notesAPI.upload(file, noteType, notebookId);
+      let newNote;
+      if (files.length === 1) {
+        newNote = await notesAPI.upload(files[0], noteType, notebookId);
+      } else {
+        newNote = await notesAPI.uploadMulti(Array.from(files), noteType, notebookId);
+      }
       // Add to notebook
       await notebooksAPI.addNote(notebookId, newNote.id);
       await loadNotebook();
@@ -105,6 +114,44 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
     }
   };
 
+  const handleAddCollaborator = async () => {
+    if (!shareEmail.trim()) return;
+    setShareLoading(true);
+    try {
+      await notebooksAPI.addCollaborator(notebookId, shareEmail.trim(), shareRole);
+      await loadNotebook();
+      setShareEmail('');
+      setMessage('🤝 Collaborator added!');
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed to add collaborator'));
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleChangeRole = async (collaboratorId: number, newRole: string) => {
+    try {
+      await notebooksAPI.updateCollaboratorRole(notebookId, collaboratorId, newRole);
+      await loadNotebook();
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed'));
+    }
+  };
+
+  const handleRemoveCollaborator = async (collaboratorId: number) => {
+    if (!confirm('Remove this collaborator?')) return;
+    try {
+      await notebooksAPI.removeCollaborator(notebookId, collaboratorId);
+      await loadNotebook();
+      setMessage('Collaborator removed');
+    } catch (err) {
+      setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed'));
+    }
+  };
+
+  const isOwner = notebook?.role === 'owner';
+  const canEdit = notebook?.role === 'owner' || notebook?.role === 'editor';
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
@@ -113,27 +160,6 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
       hour: 'numeric',
       minute: '2-digit'
     });
-  };
-
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, { bg: string; color: string; text: string }> = {
-      completed: { bg: '#E8F5E9', color: '#2E7D32', text: '✓ Ready' },
-      processing: { bg: '#FFF3E0', color: '#E65100', text: '⏳ Processing' },
-      failed: { bg: '#FFEBEE', color: '#C62828', text: '✕ Failed' },
-      pending: { bg: '#E3F2FD', color: '#1565C0', text: '○ Pending' }
-    };
-    const style = styles[status] || styles.pending;
-    return (
-      <span style={{
-        padding: '4px 8px',
-        borderRadius: '12px',
-        fontSize: '12px',
-        background: style.bg,
-        color: style.color
-      }}>
-        {style.text}
-      </span>
-    );
   };
 
   if (loading) {
@@ -213,9 +239,38 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
               ← Back
             </button>
             <div>
-              <h1 style={{ margin: 0, fontSize: '24px', color: theme.text }}>📓 {notebook.name}</h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h1 style={{ margin: 0, fontSize: '24px', color: theme.text }}>📓 {notebook.name}</h1>
+                {notebook.role && notebook.role !== 'owner' && (
+                  <span style={{
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    fontWeight: 600,
+                    background: notebook.role === 'editor' ? '#e3f2fd' : '#f3e5f5',
+                    color: notebook.role === 'editor' ? '#1565C0' : '#7B1FA2',
+                  }}>
+                    {notebook.role}
+                  </span>
+                )}
+                {notebook.is_shared && notebook.role === 'owner' && (
+                  <span style={{
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    fontWeight: 600,
+                    background: darkMode ? 'rgba(76,175,80,0.2)' : '#e8f5e9',
+                    color: '#4CAF50',
+                  }}>
+                    shared
+                  </span>
+                )}
+              </div>
               <p style={{ margin: 0, fontSize: '12px', color: theme.textSecondary }}>
                 {notebook.note_count} note{notebook.note_count !== 1 ? 's' : ''}
+                {notebook.role !== 'owner' && notebook.owner_username && (
+                  <span> · shared by {notebook.owner_username}</span>
+                )}
               </p>
             </div>
           </div>
@@ -274,6 +329,25 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
             >
               📎 Add Existing
             </button>
+
+            <button
+              onClick={() => setShowShareModal(true)}
+              style={{
+                padding: '10px 20px',
+                background: notebook.is_shared
+                  ? (darkMode ? 'rgba(76, 175, 80, 0.2)' : '#e8f5e9')
+                  : theme.buttonBg,
+                border: `1px solid ${notebook.is_shared ? '#4CAF50' : theme.border}`,
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: notebook.is_shared ? '#4CAF50' : theme.text
+              }}
+            >
+              👥 {notebook.is_shared ? `Shared (${notebook.collaborators?.length || 0})` : 'Share'}
+            </button>
           </div>
         </div>
       </div>
@@ -282,7 +356,8 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,application/pdf"
+        multiple
         capture="environment"
         onChange={handleFileSelect}
         style={{ display: 'none' }}
@@ -382,7 +457,6 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {getStatusBadge(note.status)}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRemoveNote(note.id); }}
                     style={{
@@ -479,6 +553,244 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
               style={{
                 width: '100%',
                 marginTop: '20px',
+                padding: '12px',
+                background: theme.buttonBg,
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                color: theme.text
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Share / Collaborate Modal */}
+      {showShareModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}
+        onClick={() => setShowShareModal(false)}
+        >
+          <div
+            style={{
+              background: theme.cardBg,
+              padding: '30px',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '500px',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 6px', color: theme.text }}>👥 Share Notebook</h2>
+            <p style={{ margin: '0 0 20px', color: theme.textSecondary, fontSize: '13px' }}>
+              {isOwner
+                ? 'Invite others to view or edit this notebook.'
+                : `Shared by ${notebook.owner_username || notebook.owner_email}`}
+            </p>
+
+            {/* Add collaborator form (owner only) */}
+            {isOwner && (
+              <div style={{
+                display: 'flex', gap: '8px', marginBottom: '20px',
+                flexWrap: 'wrap'
+              }}>
+                <input
+                  type="email"
+                  placeholder="Enter email address..."
+                  value={shareEmail}
+                  onChange={(e) => setShareEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddCollaborator()}
+                  style={{
+                    flex: 1,
+                    minWidth: '180px',
+                    padding: '10px 14px',
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '8px',
+                    background: darkMode ? '#3f3f5a' : '#fff',
+                    color: theme.text,
+                    fontSize: '14px',
+                  }}
+                />
+                <select
+                  value={shareRole}
+                  onChange={(e) => setShareRole(e.target.value as 'viewer' | 'editor')}
+                  style={{
+                    padding: '10px 12px',
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '8px',
+                    background: darkMode ? '#3f3f5a' : '#fff',
+                    color: theme.text,
+                    fontSize: '14px',
+                  }}
+                >
+                  <option value="viewer">👁 Viewer</option>
+                  <option value="editor">✏️ Editor</option>
+                </select>
+                <button
+                  onClick={handleAddCollaborator}
+                  disabled={shareLoading || !shareEmail.trim()}
+                  style={{
+                    padding: '10px 18px',
+                    background: shareLoading || !shareEmail.trim() ? '#ccc' : '#4CAF50',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: shareLoading ? 'not-allowed' : 'pointer',
+                    fontWeight: 600,
+                    fontSize: '14px',
+                  }}
+                >
+                  {shareLoading ? '...' : 'Invite'}
+                </button>
+              </div>
+            )}
+
+            {/* Collaborator list */}
+            <div style={{ marginBottom: '10px' }}>
+              <h4 style={{ color: theme.textSecondary, fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px' }}>
+                People with access
+              </h4>
+
+              {/* Owner */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 12px',
+                background: darkMode ? '#3f3f5a' : '#f9f9f9',
+                borderRadius: '8px',
+                marginBottom: '8px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: '#FFC107', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '14px', fontWeight: 'bold', color: '#5D4037'
+                  }}>
+                    {(notebook.owner_username || 'O')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ color: theme.text, fontSize: '14px', fontWeight: 500 }}>
+                      {notebook.owner_username || notebook.owner_email}
+                      {isOwner && <span style={{ color: theme.textSecondary }}> (you)</span>}
+                    </div>
+                    <div style={{ color: theme.textSecondary, fontSize: '12px' }}>{notebook.owner_email}</div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: '11px', padding: '3px 10px', borderRadius: '10px',
+                  background: darkMode ? '#4a4a6a' : '#e0e0e0',
+                  color: theme.textSecondary, fontWeight: 600
+                }}>
+                  Owner
+                </span>
+              </div>
+
+              {/* Collaborators */}
+              {(notebook.collaborators || []).map((collab) => (
+                <div key={collab.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 12px',
+                  background: darkMode ? '#3f3f5a' : '#f9f9f9',
+                  borderRadius: '8px',
+                  marginBottom: '8px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {collab.profile_picture ? (
+                      <img src={collab.profile_picture} alt="" style={{
+                        width: '32px', height: '32px', borderRadius: '50%'
+                      }} />
+                    ) : (
+                      <div style={{
+                        width: '32px', height: '32px', borderRadius: '50%',
+                        background: collab.role === 'editor' ? '#42A5F5' : '#AB47BC',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '14px', fontWeight: 'bold', color: '#fff'
+                      }}>
+                        {(collab.username || collab.email)[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ color: theme.text, fontSize: '14px', fontWeight: 500 }}>
+                        {collab.username || collab.email}
+                      </div>
+                      <div style={{ color: theme.textSecondary, fontSize: '12px' }}>{collab.email}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isOwner ? (
+                      <>
+                        <select
+                          value={collab.role}
+                          onChange={(e) => handleChangeRole(collab.id, e.target.value)}
+                          style={{
+                            padding: '4px 8px',
+                            border: `1px solid ${theme.border}`,
+                            borderRadius: '6px',
+                            background: darkMode ? '#252542' : '#fff',
+                            color: theme.text,
+                            fontSize: '12px',
+                          }}
+                        >
+                          <option value="viewer">Viewer</option>
+                          <option value="editor">Editor</option>
+                        </select>
+                        <button
+                          onClick={() => handleRemoveCollaborator(collab.id)}
+                          style={{
+                            padding: '4px 8px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#c62828',
+                            fontSize: '16px',
+                          }}
+                          title="Remove collaborator"
+                        >
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{
+                        fontSize: '11px', padding: '3px 10px', borderRadius: '10px',
+                        background: collab.role === 'editor' ? '#e3f2fd' : '#f3e5f5',
+                        color: collab.role === 'editor' ? '#1565C0' : '#7B1FA2',
+                        fontWeight: 600
+                      }}>
+                        {collab.role}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {(!notebook.collaborators || notebook.collaborators.length === 0) && (
+                <p style={{
+                  color: theme.textSecondary, textAlign: 'center',
+                  padding: '15px', fontSize: '13px'
+                }}>
+                  No collaborators yet.{isOwner && ' Add someone above!'}
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowShareModal(false)}
+              style={{
+                width: '100%',
+                marginTop: '10px',
                 padding: '12px',
                 background: theme.buttonBg,
                 border: 'none',

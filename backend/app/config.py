@@ -17,10 +17,10 @@ class Settings(BaseSettings):
 
     # App settings
     app_name: str = "NotePeel"
-    debug: bool = True
+    debug: bool = False  # Default to False — must explicitly enable in dev
     
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/notepeel"
+    database_url: str
     
     # JWT Auth
     secret_key: str = "your-secret-key-change-in-production"
@@ -38,12 +38,27 @@ class Settings(BaseSettings):
     # Google OAuth
     google_client_id: str = ""
 
+    # Microsoft OAuth (client ID only - uses MSAL popup flow)
+    microsoft_client_id: str = ""
+
     # Gemini AI
     gemini_api_key: str = ""
 
     # Cloudflare Workers AI
     cf_account_id: str = ""
     cf_api_token: str = ""
+
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_monthly_price_id: str = ""
+    stripe_pro_annual_price_id: str = ""
+    stripe_premium_monthly_price_id: str = ""
+    stripe_premium_annual_price_id: str = ""
+    frontend_url: str = "http://localhost:5173"
+
+    # Dev bypass — comma-separated emails that get all features with no paywall
+    dev_emails: str = ""
 
     class Config:
         env_file = ".env"
