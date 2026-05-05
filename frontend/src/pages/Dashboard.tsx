@@ -78,12 +78,12 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
   const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [currentHighlights, setCurrentHighlights] = useState<string[]>([]);
   const [cachedExplanations, setCachedExplanations] = useState<{id: number; highlighted_text: string; explanation: string; created_at: string}[]>([]);
-  const [categories, setCategories] = useState<Categories>({ subjects: [], topics: [], tags: [] });
+  const [_categories, setCategories] = useState<Categories>({ subjects: [], topics: [], tags: [] });
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [_isSearching, setIsSearching] = useState(false);
   const [showNoteInfo, setShowNoteInfo] = useState(false);
-  const [editSubject, setEditSubject] = useState('');
+  const [_editSubject, setEditSubject] = useState('');
   const [editTopic, setEditTopic] = useState('');
   const [editTags, setEditTags] = useState('');
   const [editTitle, setEditTitle] = useState('');
@@ -219,7 +219,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     try { const txt = editorRef.current.innerHTML; if (txt !== selectedNote.structured_text) { await notesAPI.update(selectedNote.id, { structured_text: txt }); setSelectedNote(p => p ? { ...p, structured_text: txt } : null); } } catch {}
   };
 
-  const deleteNote = async (noteId: number) => {
+  const _deleteNote = async (noteId: number) => {
     if (!window.confirm('Delete this note?')) return;
     try { await notesAPI.delete(noteId); setNotes(notes.filter(n => n.id !== noteId)); if (selectedNote?.id === noteId) { setSelectedNote(null); if (editorRef.current) editorRef.current.innerHTML = ''; } setMessage('Deleted'); setTimeout(() => setMessage(''), 3000); }
     catch (err) { setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed')); }
@@ -407,7 +407,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   // Force re-render when scrolling so handles track the shape
   const [, forceUpdate] = useState(0);
-  const origHandleEditorScroll = handleEditorScroll;
+  const _origHandleEditorScroll = handleEditorScroll;
   // We'll trigger re-render on scroll in a separate effect
   useEffect(() => {
     if (!selectedShape || !editorScrollRef.current) return;

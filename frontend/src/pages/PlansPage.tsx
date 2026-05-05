@@ -17,7 +17,7 @@ const PRICE_IDS = {
   premium_annual: import.meta.env.VITE_STRIPE_PREMIUM_ANNUAL_PRICE_ID || '',
 };
 
-export default function PlansPage({ userEmail, onBack, darkMode, isMobile = false }: PlansPageProps) {
+export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isMobile = false }: PlansPageProps) {
   const { usage } = useUsage(localStorage.getItem('token'));
   const currentPlan = usage?.plan || 'free';
   const [loading, setLoading] = useState<string | null>(null);

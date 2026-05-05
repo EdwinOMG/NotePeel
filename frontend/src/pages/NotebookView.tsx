@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { notebooksAPI, notesAPI } from '../services/api';
-import type { NotebookWithNotes, Note, Collaborator } from '../types';
+import type { NotebookWithNotes, Note } from '../types';
 
 interface NotebookViewProps {
   notebookId: number;
@@ -150,7 +150,7 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
   };
 
   const isOwner = notebook?.role === 'owner';
-  const canEdit = notebook?.role === 'owner' || notebook?.role === 'editor';
+  const _canEdit = notebook?.role === 'owner' || notebook?.role === 'editor';
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
