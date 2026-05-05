@@ -57,12 +57,18 @@ app = FastAPI(
 
 # CORS middleware
 # IMPORTANT: Never use allow_origins=["*"] with allow_credentials=True.
-# In dev, we list local origins. In production, only the real frontend.
-cors_origins = [
+# In dev, we list local origins. In production, set CORS_ORIGINS env var.
+default_origins = [
+    "https://notepeel.net",
+    "https://www.notepeel.net",
     "https://notepeelfrontend.onrender.com",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+
+# Allow adding extra origins via env var (comma-separated)
+extra_origins = os.getenv("CORS_ORIGINS", "")
+cors_origins = default_origins + [o.strip() for o in extra_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
