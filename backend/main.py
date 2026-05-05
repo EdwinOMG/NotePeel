@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 from fastapi import FastAPI, UploadFile, File, Depends, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import create_tables, get_db
@@ -25,16 +26,68 @@ from app.models.user import User
 from ocr_service import extract_structured_text
 
 
+# ── Allowed origins ──────────────────────────────────────────────────────────
+default_origins = {
+    "https://notepeel.net",
+    "https://www.notepeel.net",
+    "https://notepeelfrontend.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+
+extra_origins = os.getenv("CORS_ORIGINS", "")
+ALLOWED_ORIGINS = default_origins | {o.strip() for o in extra_origins.split(",") if o.strip()}
+
+
+# ── Bulletproof CORS middleware ──────────────────────────────────────────────
+# Using a raw Starlette middleware instead of FastAPI's CORSMiddleware to
+# guarantee CORS headers are ALWAYS present — even on crashes and 500 errors.
+class CORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
+
+        # Handle preflight OPTIONS requests immediately
+        if request.method == "OPTIONS":
+            if origin in ALLOWED_ORIGINS:
+                return Response(
+                    status_code=204,
+                    headers={
+                        "Access-Control-Allow-Origin": origin,
+                        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+                        "Access-Control-Allow-Credentials": "true",
+                        "Access-Control-Max-Age": "600",
+                    },
+                )
+            return Response(status_code=204)
+
+        # For all other requests, call the route and attach CORS headers
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            print(f"❌ Unhandled error on {request.method} {request.url.path}: {exc}")
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": f"Internal server error: {str(exc)}"},
+            )
+
+        if origin in ALLOWED_ORIGINS:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create database tables on startup and run security checks."""
-    # ── Security checks ──────────────────────────────────────────
     from app.config import get_settings
     _settings = get_settings()
 
     if "change" in _settings.secret_key.lower() or len(_settings.secret_key) < 32:
         print("⚠️  WARNING: Your SECRET_KEY is weak or still set to a default value!")
-        print("⚠️  Generate a strong key with: python -c \"import secrets; print(secrets.token_hex(32))\"")
+        print('⚠️  Generate a strong key with: python -c "import secrets; print(secrets.token_hex(32))"')
         print("⚠️  Set it in your .env file as SECRET_KEY=<your-generated-key>")
 
     if not _settings.stripe_webhook_secret and _settings.stripe_secret_key:
@@ -49,35 +102,14 @@ is_debug = os.getenv("DEBUG", "false").lower() == "true"
 app = FastAPI(
     title="NotePeel",
     description="Peel back the layers of your handwritten notes 🐵🍌",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
-    # Disable interactive API docs in production
     docs_url="/docs" if is_debug else None,
     redoc_url="/redoc" if is_debug else None,
 )
 
-# CORS middleware
-# IMPORTANT: Never use allow_origins=["*"] with allow_credentials=True.
-# In dev, we list local origins. In production, set CORS_ORIGINS env var.
-default_origins = [
-    "https://notepeel.net",
-    "https://www.notepeel.net",
-    "https://notepeelfrontend.onrender.com",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
-# Allow adding extra origins via env var (comma-separated)
-extra_origins = os.getenv("CORS_ORIGINS", "")
-cors_origins = default_origins + [o.strip() for o in extra_origins.split(",") if o.strip()]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Add our bulletproof CORS middleware
+app.add_middleware(CORSMiddleware)
 
 # Include routers
 app.include_router(auth_router)
@@ -87,17 +119,6 @@ app.include_router(ai_router)
 app.include_router(usage_router, prefix="/api")
 app.include_router(stripe_router, prefix="/api")
 app.include_router(chat_router)
-
-
-# Catch-all exception handler — ensures unhandled errors still return
-# a proper JSON response so CORS headers are attached by the middleware.
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    print(f"❌ Unhandled error on {request.method} {request.url.path}: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"},
-    )
 
 
 # OCR endpoint — requires authentication, uses AI quota
@@ -132,7 +153,7 @@ def root():
     """Root endpoint."""
     return {
         "message": "Welcome to NotePeel API 🐵🍌",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "ai": "Gemini",
-        "docs": "/docs"
+        "docs": "/docs",
     }
