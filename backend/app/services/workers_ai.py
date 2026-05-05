@@ -5,12 +5,18 @@ import asyncio
 
 from app.config import get_settings
 
-settings = get_settings()
-
-BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{settings.cf_account_id}/ai/run"
 MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 CHAT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast"
-HEADERS = {"Authorization": f"Bearer {settings.cf_api_token}"}
+
+
+def _get_base_url() -> str:
+    settings = get_settings()
+    return f"https://api.cloudflare.com/client/v4/accounts/{settings.cf_account_id}/ai/run"
+
+
+def _get_headers() -> dict:
+    settings = get_settings()
+    return {"Authorization": f"Bearer {settings.cf_api_token}"}
 
 
 def _estimate_tokens(text: str) -> int:
@@ -32,8 +38,8 @@ async def _call(system: str, user: str) -> tuple[str, int]:
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{BASE_URL}/{MODEL}",
-            headers=HEADERS,
+            f"{_get_base_url()}/{MODEL}",
+            headers=_get_headers(),
             json={
                 "messages": [
                     {"role": "system", "content": system},
@@ -192,8 +198,8 @@ async def chat_with_note(messages: list[dict], note_context: str) -> tuple[str, 
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{BASE_URL}/{CHAT_MODEL}",
-            headers=HEADERS,
+            f"{_get_base_url()}/{CHAT_MODEL}",
+            headers=_get_headers(),
             json={
                 "messages": [
                     {"role": "system", "content": system},
