@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.models.note import Note
 from app.controllers.auth_controller import get_current_user
+from app.controllers.note_controller import note_controller
 from app.services import workers_ai
 from app.services.usage_service import usage_service
 
@@ -35,13 +35,8 @@ async def chat(
     # 2. Budget check
     usage_service.assert_budget_available(db, current_user, "chat")
 
-    # 3. Fetch the note for context
-    note = db.query(Note).filter(
-        Note.id == note_id,
-        Note.owner_id == current_user.id
-    ).first()
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
+    # 3. Fetch the note for context (supports both owned and shared notes)
+    note = note_controller.get_note(db, note_id, current_user)
     if not note.raw_text:
         raise HTTPException(status_code=400, detail="Note has no text content")
 

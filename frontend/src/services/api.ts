@@ -12,8 +12,17 @@ import type {
   FlashcardSet
 } from '../types';
 
-// Use VITE_API_URL env var for production (Render), fall back to current hostname for local dev
-const BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
+// Use VITE_API_URL env var for production (Render), fall back to current hostname for local dev.
+// IMPORTANT: VITE_API_URL must be set at BUILD TIME in Render's environment variables.
+const BASE_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
+
+if (!import.meta.env.VITE_API_URL && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  console.error(
+    '[NotePeel] VITE_API_URL is not set! API calls will fail in production. ' +
+    'Set VITE_API_URL in your Render frontend environment variables and redeploy.'
+  );
+}
+
 const API_URL = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
 
 const getToken = (): string | null => localStorage.getItem('token');

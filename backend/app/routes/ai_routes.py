@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.note import Note
 from app.models.ai_models import FlashcardSet, Flashcard, AISummary, AIExplanation
 from app.controllers.auth_controller import get_current_user
+from app.controllers.note_controller import note_controller
 from app.services import workers_ai
 from app.services.usage_service import usage_service
 
@@ -14,9 +15,8 @@ router = APIRouter(prefix="/api/ai", tags=["AI"])
 
 
 def _get_user_note(db: Session, note_id: int, user: User) -> Note:
-    note = db.query(Note).filter(Note.id == note_id, Note.owner_id == user.id).first()
-    if not note:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    # Uses the controller which checks both ownership and collaborator access
+    note = note_controller.get_note(db, note_id, user)
     if not note.raw_text:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Note has no text content")
     return note
@@ -210,19 +210,19 @@ async def explain_text(
     # 4. Build context
     context = ""
     if request.note_id:
-        note = db.query(Note).filter(
-            Note.id == request.note_id,
-            Note.owner_id == current_user.id
-        ).first()
-        if note and note.raw_text:
-            raw = note.raw_text
-            idx = raw.lower().find(text_to_explain.lower())
-            if idx != -1:
-                start = max(0, idx - 300)
-                end = min(len(raw), idx + len(text_to_explain) + 300)
-                context = raw[start:end]
-            else:
-                context = raw[:600]
+        try:
+            note = note_controller.get_note(db, request.note_id, current_user)
+            if note.raw_text:
+                raw = note.raw_text
+                idx = raw.lower().find(text_to_explain.lower())
+                if idx != -1:
+                    start = max(0, idx - 300)
+                    end = min(len(raw), idx + len(text_to_explain) + 300)
+                    context = raw[start:end]
+                else:
+                    context = raw[:600]
+        except HTTPException:
+            pass  # Note not accessible — proceed without context
 
     # 5. Call AI
     try:
