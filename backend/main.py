@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 # Load environment variables from .env
 load_dotenv()
 
-from fastapi import FastAPI, UploadFile, File, Depends, Query
+from fastapi import FastAPI, UploadFile, File, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.database import create_tables, get_db
@@ -86,6 +87,17 @@ app.include_router(ai_router)
 app.include_router(usage_router, prefix="/api")
 app.include_router(stripe_router, prefix="/api")
 app.include_router(chat_router)
+
+
+# Catch-all exception handler — ensures unhandled errors still return
+# a proper JSON response so CORS headers are attached by the middleware.
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"❌ Unhandled error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"},
+    )
 
 
 # OCR endpoint — requires authentication, uses AI quota
