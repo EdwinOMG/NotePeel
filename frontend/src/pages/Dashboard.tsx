@@ -219,12 +219,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     try { const txt = editorRef.current.innerHTML; if (txt !== selectedNote.structured_text) { await notesAPI.update(selectedNote.id, { structured_text: txt }); setSelectedNote(p => p ? { ...p, structured_text: txt } : null); } } catch {}
   };
 
-  const _deleteNote = async (noteId: number) => {
-    if (!window.confirm('Delete this note?')) return;
-    try { await notesAPI.delete(noteId); setNotes(notes.filter(n => n.id !== noteId)); if (selectedNote?.id === noteId) { setSelectedNote(null); if (editorRef.current) editorRef.current.innerHTML = ''; } setMessage('Deleted'); setTimeout(() => setMessage(''), 3000); }
-    catch (err) { setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed')); }
-  };
-
   const newNote = async () => { await autoSave(); setSelectedNote(null); if (editorRef.current) editorRef.current.innerHTML = ''; setActiveMenu(null); updateCounts(); };
   const execCommand = (cmd: string, val?: string) => { document.execCommand(cmd, false, val); editorRef.current?.focus(); };
 
@@ -407,7 +401,6 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
 
   // Force re-render when scrolling so handles track the shape
   const [, forceUpdate] = useState(0);
-  const _origHandleEditorScroll = handleEditorScroll;
   // We'll trigger re-render on scroll in a separate effect
   useEffect(() => {
     if (!selectedShape || !editorScrollRef.current) return;

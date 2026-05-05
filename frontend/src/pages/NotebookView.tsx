@@ -150,8 +150,6 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
   };
 
   const isOwner = notebook?.role === 'owner';
-  const _canEdit = notebook?.role === 'owner' || notebook?.role === 'editor';
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
