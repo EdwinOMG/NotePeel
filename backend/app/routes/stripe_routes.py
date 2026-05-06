@@ -113,7 +113,48 @@ def create_portal_session(
     return {"portal_url": portal.url}
 
 
-# ── 3. Cancel Subscription ───────────────────────────────────────
+# ── 3. Change Plan (upgrade / downgrade existing subscription) ──
+@router.post("/change-plan")
+def change_plan(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Switches an existing subscription to a different price.
+    Accepts: { "price_id": "price_..." }
+    Returns: { "message": "...", "plan": "pro" | "premium" }
+
+    Uses proration so the customer is credited for unused time on the
+    old plan and charged the difference for the new one.
+    """
+    price_id = body.get("price_id")
+    if not price_id or price_id not in PRICE_TO_PLAN:
+        raise HTTPException(status_code=400, detail="Invalid price_id")
+
+    if not current_user.stripe_subscription_id:
+        raise HTTPException(status_code=400, detail="No active subscription to change")
+
+    # Retrieve the current subscription to get the item ID
+    sub = stripe.Subscription.retrieve(current_user.stripe_subscription_id)
+    item_id = sub["items"]["data"][0]["id"]
+
+    # Update the subscription item to the new price (prorated)
+    stripe.Subscription.modify(
+        current_user.stripe_subscription_id,
+        items=[{"id": item_id, "price": price_id}],
+        proration_behavior="create_prorations",
+    )
+
+    # Update the local DB immediately so the UI reflects the change
+    new_plan = PRICE_TO_PLAN[price_id]
+    current_user.subscription = new_plan
+    db.commit()
+
+    return {"message": f"Plan changed to {new_plan}", "plan": new_plan}
+
+
+# ── 5. Cancel Subscription ───────────────────────────────────────
 @router.post("/cancel")
 def cancel_subscription(
     current_user: User = Depends(get_current_user),
@@ -132,7 +173,7 @@ def cancel_subscription(
     return {"message": "Subscription will cancel at end of billing period"}
 
 
-# ── 4. Webhook (Stripe → your server) ────────────────────────────
+# ── 6. Webhook (Stripe → your server) ────────────────────────────
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """

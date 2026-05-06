@@ -263,4 +263,10 @@ export const stripeAPI = {
 
   cancelSubscription: (): Promise<{ message: string }> =>
     fetchWithAuth('/api/stripe/cancel', { method: 'POST' }),
+
+  changePlan: (price_id: string): Promise<{ message: string; plan: string }> =>
+    fetchWithAuth('/api/stripe/change-plan', {
+      method: 'POST',
+      body: JSON.stringify({ price_id }),
+    }),
 };

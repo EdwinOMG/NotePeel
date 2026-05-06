@@ -106,11 +106,20 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
 
     try {
       setLoading(plan.id);
-      const { checkout_url } = await stripeAPI.createCheckout(plan.stripePriceId);
-      window.location.href = checkout_url;
+
+      // If user already has a paid subscription, switch the plan instead of creating a new checkout
+      if (currentPlan === 'pro' || currentPlan === 'premium') {
+        const { plan: newPlan } = await stripeAPI.changePlan(plan.stripePriceId);
+        alert(`Your plan has been changed to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)}. Any proration will appear on your next invoice.`);
+        window.location.reload();
+      } else {
+        // First-time purchase — redirect to Stripe Checkout
+        const { checkout_url } = await stripeAPI.createCheckout(plan.stripePriceId);
+        window.location.href = checkout_url;
+      }
     } catch (err: any) {
-      console.error('Checkout error:', err);
-      alert(`Failed to start checkout: ${err?.message || 'Unknown error'}. Please try again.`);
+      console.error('Plan change error:', err);
+      alert(`Failed to change plan: ${err?.message || 'Unknown error'}. Please try again.`);
       setLoading(null);
     }
   };
