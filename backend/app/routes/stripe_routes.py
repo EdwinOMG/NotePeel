@@ -207,15 +207,25 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 user = db.query(User).filter(User.id == int(notepeel_id)).first()
 
         if user and subscription_id:
-            # Fetch the subscription to find which price they bought
-            sub = stripe.Subscription.retrieve(subscription_id)
-            price_id = sub["items"]["data"][0]["price"]["id"]
-            plan = PRICE_TO_PLAN.get(price_id, "pro")
+            try:
+                # Fetch the subscription to find which price they bought
+                sub = stripe.Subscription.retrieve(subscription_id)
+                price_id = sub["items"]["data"][0]["price"]["id"]
+                plan = PRICE_TO_PLAN.get(price_id, "pro")
+            except Exception as e:
+                # If we can't fetch the subscription details, still record
+                # the subscription ID and default to "pro" so the user
+                # isn't stuck on free after paying.
+                print(f"⚠️ Failed to retrieve subscription {subscription_id}: {e}")
+                plan = "pro"
 
             user.stripe_subscription_id = subscription_id
             user.subscription = plan
             db.commit()
             print(f"✅ User {user.id} upgraded to {plan}")
+        else:
+            print(f"⚠️ checkout.session.completed: user not found "
+                  f"(customer={customer_id}, subscription={subscription_id})")
 
     # ── customer.subscription.updated (plan change, renewal) ───
     elif event["type"] == "customer.subscription.updated":
@@ -231,6 +241,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             user.stripe_subscription_id = sub["id"]
             db.commit()
             print(f"🔄 User {user.id} subscription updated to {plan}")
+        else:
+            print(f"⚠️ customer.subscription.updated: user not found "
+                  f"(customer={customer_id})")
 
     # ── customer.subscription.deleted (cancelled / expired) ────
     elif event["type"] == "customer.subscription.deleted":
@@ -243,5 +256,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             user.stripe_subscription_id = None
             db.commit()
             print(f"❌ User {user.id} downgraded to free (subscription ended)")
+        else:
+            print(f"⚠️ customer.subscription.deleted: user not found "
+                  f"(customer={customer_id})")
 
     return {"status": "ok"}
