@@ -50,6 +50,14 @@ def create_tables():
                 ))
                 print("✅ Added stripe_subscription_id column to users table")
 
+            # Widen subscription column — it may have been created as VARCHAR(4)
+            # which is too narrow for "premium" (7 chars). This ALTER is safe to
+            # run repeatedly; widening a varchar never loses data.
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN subscription TYPE VARCHAR(10)"
+            ))
+            print("✅ Ensured subscription column is VARCHAR(10)")
+
     # -- daily_usage table migrations --
     if "daily_usage" in inspector.get_table_names():
         existing_columns = {col["name"] for col in inspector.get_columns("daily_usage")}
