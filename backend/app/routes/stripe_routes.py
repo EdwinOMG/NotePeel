@@ -156,8 +156,8 @@ def create_checkout_session(
             customer=customer_id,
             mode="subscription",
             line_items=[{"price": body.price_id, "quantity": 1}],
-            success_url=f"{settings.frontend_url}/plans?checkout=success",
-            cancel_url=f"{settings.frontend_url}/plans?checkout=cancel",
+            success_url=f"{settings.frontend_url}?checkout=success",
+            cancel_url=f"{settings.frontend_url}?checkout=cancel",
             metadata={"notepeel_user_id": str(current_user.id)},
             subscription_data={
                 "metadata": {"notepeel_user_id": str(current_user.id)},
@@ -187,7 +187,7 @@ def create_portal_session(
     try:
         portal = stripe.billing_portal.Session.create(
             customer=current_user.stripe_customer_id,
-            return_url=f"{settings.frontend_url}/plans",
+            return_url=f"{settings.frontend_url}?page=plans",
         )
     except stripe.error.StripeError as e:
         logger.error(f"Stripe portal error for user {current_user.id}: {e}")

@@ -47,7 +47,16 @@ function App() {
     if (token && email) {
       setIsAuthenticated(true);
       setUserEmail(email);
-      setCurrentPage({ type: 'notebooks' });
+
+      // Check if returning from Stripe checkout or portal
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('checkout') || params.get('page') === 'plans') {
+        // Go straight to PlansPage so its sync logic can fire
+        setPreviousPage({ type: 'notebooks' });
+        setCurrentPage({ type: 'plans' });
+      } else {
+        setCurrentPage({ type: 'notebooks' });
+      }
     }
     
     if (savedDarkMode === 'true') {
