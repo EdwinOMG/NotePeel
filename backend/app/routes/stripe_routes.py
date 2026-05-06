@@ -46,6 +46,46 @@ if settings.stripe_premium_annual_price_id:
     PRICE_TO_PLAN[settings.stripe_premium_annual_price_id] = "premium"
 
 
+# ── Helpers ──────────────────────────────────────────────────────
+
+def _resolve_plan_from_subscription(subscription_id: str) -> str:
+    """Fetch a subscription from Stripe and resolve which plan it maps to.
+
+    Returns the plan name ("pro" / "premium") or "pro" as a safe fallback
+    if the price ID isn't in PRICE_TO_PLAN (the user paid, so they should
+    never be left on free).
+    """
+    sub = stripe.Subscription.retrieve(subscription_id)
+    price_id = sub["items"]["data"][0]["price"]["id"]
+    return PRICE_TO_PLAN.get(price_id, "pro")
+
+
+def _find_user_for_webhook(
+    db: Session,
+    customer_id: str | None,
+    metadata: dict | None = None,
+) -> User | None:
+    """Look up the NotePeel user that corresponds to a Stripe event.
+
+    Strategy:
+      1. By stripe_customer_id (set when the checkout session was created).
+      2. By notepeel_user_id stored in the session/subscription metadata.
+    """
+    user = None
+    if customer_id:
+        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+
+    if not user and metadata:
+        notepeel_id = metadata.get("notepeel_user_id")
+        if notepeel_id:
+            user = db.query(User).filter(User.id == int(notepeel_id)).first()
+            # Backfill stripe_customer_id so future events match on attempt 1
+            if user and customer_id and not user.stripe_customer_id:
+                user.stripe_customer_id = customer_id
+
+    return user
+
+
 def _get_or_create_stripe_customer(db: Session, user: User) -> str:
     """Return the Stripe customer ID for a user, creating one if needed."""
     if user.stripe_customer_id:
@@ -86,6 +126,12 @@ def create_checkout_session(
         success_url=f"{settings.frontend_url}?checkout=success",
         cancel_url=f"{settings.frontend_url}?checkout=cancel",
         metadata={"notepeel_user_id": str(current_user.id)},
+        # Also tag the subscription itself with the user ID so the
+        # customer.subscription.updated webhook can find the user
+        # even if stripe_customer_id lookup fails.
+        subscription_data={
+            "metadata": {"notepeel_user_id": str(current_user.id)},
+        },
     )
 
     return {"checkout_url": session.url}
@@ -154,7 +200,7 @@ def change_plan(
     return {"message": f"Plan changed to {new_plan}", "plan": new_plan}
 
 
-# ── 5. Cancel Subscription ───────────────────────────────────────
+# ── 4. Cancel Subscription ───────────────────────────────────────
 @router.post("/cancel")
 def cancel_subscription(
     current_user: User = Depends(get_current_user),
@@ -171,6 +217,63 @@ def cancel_subscription(
         cancel_at_period_end=True,
     )
     return {"message": "Subscription will cancel at end of billing period"}
+
+
+# ── 5. Sync Subscription (safety net) ────────────────────────────
+@router.post("/sync")
+def sync_subscription(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Called by the frontend after returning from Stripe Checkout to
+    ensure the subscription tier is up to date in the database.
+
+    This acts as a safety net — the webhook is the primary mechanism,
+    but if it was delayed or failed this endpoint will catch it.
+    """
+    if not current_user.stripe_customer_id:
+        return {"plan": current_user.subscription, "synced": False}
+
+    try:
+        # List active subscriptions for this customer
+        subscriptions = stripe.Subscription.list(
+            customer=current_user.stripe_customer_id,
+            status="active",
+            limit=1,
+        )
+
+        if subscriptions.data:
+            sub = subscriptions.data[0]
+            price_id = sub["items"]["data"][0]["price"]["id"]
+            plan = PRICE_TO_PLAN.get(price_id, "pro")
+
+            changed = False
+            if current_user.subscription != plan:
+                current_user.subscription = plan
+                changed = True
+            if current_user.stripe_subscription_id != sub["id"]:
+                current_user.stripe_subscription_id = sub["id"]
+                changed = True
+
+            if changed:
+                db.commit()
+                print(f"🔄 Sync: User {current_user.id} updated to {plan}")
+
+            return {"plan": plan, "synced": changed}
+        else:
+            # No active subscription — make sure they're on free
+            if current_user.subscription != "free":
+                current_user.subscription = "free"
+                current_user.stripe_subscription_id = None
+                db.commit()
+                return {"plan": "free", "synced": True}
+            return {"plan": "free", "synced": False}
+
+    except Exception as e:
+        print(f"⚠️ Sync failed for user {current_user.id}: {e}")
+        # Don't crash — just return current state
+        return {"plan": current_user.subscription, "synced": False}
 
 
 # ── 6. Webhook (Stripe → your server) ────────────────────────────
@@ -192,72 +295,77 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    event_type = event["type"]
+
     # ── checkout.session.completed ─────────────────────────────
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        subscription_id = session.get("subscription")
-        customer_id = session.get("customer")
+    if event_type == "checkout.session.completed":
+        session_obj = event["data"]["object"]
+        subscription_id = session_obj.get("subscription")
+        customer_id = session_obj.get("customer")
+        metadata = session_obj.get("metadata") or {}
 
-        # Look up user by stripe customer ID
-        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+        user = _find_user_for_webhook(db, customer_id, metadata)
+
         if not user:
-            # Fallback: look up by metadata
-            notepeel_id = session.get("metadata", {}).get("notepeel_user_id")
-            if notepeel_id:
-                user = db.query(User).filter(User.id == int(notepeel_id)).first()
+            print(f"⚠️ checkout.session.completed: could not find user "
+                  f"(customer={customer_id}, metadata={metadata})")
+            return {"status": "ok"}
 
-        if user and subscription_id:
-            try:
-                # Fetch the subscription to find which price they bought
-                sub = stripe.Subscription.retrieve(subscription_id)
-                price_id = sub["items"]["data"][0]["price"]["id"]
-                plan = PRICE_TO_PLAN.get(price_id, "pro")
-            except Exception as e:
-                # If we can't fetch the subscription details, still record
-                # the subscription ID and default to "pro" so the user
-                # isn't stuck on free after paying.
-                print(f"⚠️ Failed to retrieve subscription {subscription_id}: {e}")
-                plan = "pro"
+        if not subscription_id:
+            print(f"⚠️ checkout.session.completed: no subscription_id in session "
+                  f"(user={user.id}, session_mode={session_obj.get('mode')})")
+            return {"status": "ok"}
 
-            user.stripe_subscription_id = subscription_id
-            user.subscription = plan
-            db.commit()
-            print(f"✅ User {user.id} upgraded to {plan}")
-        else:
-            print(f"⚠️ checkout.session.completed: user not found "
-                  f"(customer={customer_id}, subscription={subscription_id})")
+        # Resolve which plan they bought
+        try:
+            plan = _resolve_plan_from_subscription(subscription_id)
+        except Exception as e:
+            # The user paid — never leave them on free. Default to pro.
+            print(f"⚠️ Could not fetch subscription {subscription_id} "
+                  f"for user {user.id}: {e} — defaulting to pro")
+            plan = "pro"
+
+        user.stripe_subscription_id = subscription_id
+        user.subscription = plan
+        db.commit()
+        print(f"✅ User {user.id} upgraded to {plan}")
 
     # ── customer.subscription.updated (plan change, renewal) ───
-    elif event["type"] == "customer.subscription.updated":
+    elif event_type == "customer.subscription.updated":
         sub = event["data"]["object"]
         customer_id = sub.get("customer")
-        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+        sub_metadata = sub.get("metadata") or {}
 
-        if user:
-            price_id = sub["items"]["data"][0]["price"]["id"]
-            plan = PRICE_TO_PLAN.get(price_id, user.subscription)
+        user = _find_user_for_webhook(db, customer_id, sub_metadata)
 
-            user.subscription = plan
-            user.stripe_subscription_id = sub["id"]
-            db.commit()
-            print(f"🔄 User {user.id} subscription updated to {plan}")
-        else:
-            print(f"⚠️ customer.subscription.updated: user not found "
+        if not user:
+            print(f"⚠️ customer.subscription.updated: could not find user "
                   f"(customer={customer_id})")
+            return {"status": "ok"}
+
+        price_id = sub["items"]["data"][0]["price"]["id"]
+        plan = PRICE_TO_PLAN.get(price_id, user.subscription)
+
+        user.subscription = plan
+        user.stripe_subscription_id = sub["id"]
+        db.commit()
+        print(f"🔄 User {user.id} subscription updated to {plan}")
 
     # ── customer.subscription.deleted (cancelled / expired) ────
-    elif event["type"] == "customer.subscription.deleted":
+    elif event_type == "customer.subscription.deleted":
         sub = event["data"]["object"]
         customer_id = sub.get("customer")
-        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
 
-        if user:
-            user.subscription = "free"
-            user.stripe_subscription_id = None
-            db.commit()
-            print(f"❌ User {user.id} downgraded to free (subscription ended)")
-        else:
-            print(f"⚠️ customer.subscription.deleted: user not found "
+        user = _find_user_for_webhook(db, customer_id)
+
+        if not user:
+            print(f"⚠️ customer.subscription.deleted: could not find user "
                   f"(customer={customer_id})")
+            return {"status": "ok"}
+
+        user.subscription = "free"
+        user.stripe_subscription_id = None
+        db.commit()
+        print(f"❌ User {user.id} downgraded to free (subscription ended)")
 
     return {"status": "ok"}

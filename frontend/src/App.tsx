@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useIsMobile } from './hooks/useIsMobile';
+import { stripeAPI } from './services/api';
 import Login from './pages/Login';
 import NotebooksPage from './pages/NotebooksPage';
 import NotebookView from './pages/NotebookView';
@@ -52,6 +53,19 @@ function App() {
     
     if (savedDarkMode === 'true') {
       setDarkMode(true);
+    }
+
+    // After returning from Stripe Checkout, sync the subscription so the
+    // DB is updated even if the webhook hasn't fired yet.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('checkout') === 'success' && token) {
+      // Clean the URL so a refresh doesn't re-trigger
+      window.history.replaceState({}, '', window.location.pathname);
+
+      // Give the webhook a moment to land, then sync as a safety net
+      setTimeout(() => {
+        stripeAPI.syncSubscription().catch(() => {});
+      }, 2000);
     }
 
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches

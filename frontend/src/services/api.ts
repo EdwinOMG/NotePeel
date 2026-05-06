@@ -269,4 +269,7 @@ export const stripeAPI = {
       method: 'POST',
       body: JSON.stringify({ price_id }),
     }),
+
+  syncSubscription: (): Promise<{ plan: string; synced: boolean }> =>
+    fetchWithAuth('/api/stripe/sync', { method: 'POST' }),
 };
