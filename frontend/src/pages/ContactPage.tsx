@@ -13,6 +13,10 @@ export default function ContactPage({ userEmail, onBack, darkMode, isMobile = fa
   const [subject, setSubject] = useState('general');
   const [message, setMessage] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const WEB3FORMS_ACCESS_KEY = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY || '';
 
   const theme = {
     bg: darkMode ? '#1a1a2e' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
@@ -24,13 +28,43 @@ export default function ContactPage({ userEmail, onBack, darkMode, isMobile = fa
     inputBg: darkMode ? '#1a1a2e' : '#ffffff',
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!email.trim() || !message.trim()) return;
 
-    // In production, this would POST to your backend or a service like Formspree / SendGrid
-    // Example: POST /api/contact { name, email, subject, message }
-    console.log('Contact form submitted:', { name, email, subject, message });
-    setSubmitted(true);
+    if (!WEB3FORMS_ACCESS_KEY) {
+      setError('Contact form is not configured yet. Please email us directly.');
+      return;
+    }
+
+    setSending(true);
+    setError('');
+
+    try {
+      const response = await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_key: WEB3FORMS_ACCESS_KEY,
+          name: name || 'Not provided',
+          email,
+          subject: `[NotePeel] ${subject}`,
+          message,
+          from_name: 'NotePeel Contact Form',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setSubmitted(true);
+      } else {
+        setError('Failed to send message. Please try emailing us directly.');
+      }
+    } catch (err) {
+      setError('Failed to send message. Please try emailing us directly.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const inputStyle: React.CSSProperties = {
@@ -243,28 +277,39 @@ export default function ContactPage({ userEmail, onBack, darkMode, isMobile = fa
                 />
               </div>
 
+              {/* Error message */}
+              {error && (
+                <p style={{
+                  margin: '0 0 16px', fontSize: '13px', color: '#ef4444',
+                  background: darkMode ? 'rgba(239,68,68,0.1)' : '#fef2f2',
+                  padding: '10px 14px', borderRadius: '8px',
+                }}>
+                  {error}
+                </p>
+              )}
+
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={!email.trim() || !message.trim()}
+                disabled={!email.trim() || !message.trim() || sending}
                 style={{
                   width: '100%',
                   padding: '14px',
-                  background: (!email.trim() || !message.trim())
+                  background: (!email.trim() || !message.trim() || sending)
                     ? (darkMode ? '#3f3f5a' : '#e5e7eb')
                     : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                  color: (!email.trim() || !message.trim())
+                  color: (!email.trim() || !message.trim() || sending)
                     ? theme.textSecondary
                     : '#5D4037',
                   border: 'none',
                   borderRadius: '12px',
                   fontSize: '15px',
                   fontWeight: 700,
-                  cursor: (!email.trim() || !message.trim()) ? 'not-allowed' : 'pointer',
+                  cursor: (!email.trim() || !message.trim() || sending) ? 'not-allowed' : 'pointer',
                   transition: 'transform 0.15s, box-shadow 0.15s',
                 }}
                 onMouseEnter={(e) => {
-                  if (email.trim() && message.trim()) {
+                  if (email.trim() && message.trim() && !sending) {
                     e.currentTarget.style.transform = 'translateY(-1px)';
                     e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,152,0,0.3)';
                   }
@@ -274,7 +319,7 @@ export default function ContactPage({ userEmail, onBack, darkMode, isMobile = fa
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                Send Message
+                {sending ? 'Sending...' : 'Send Message'}
               </button>
             </div>
           </>
