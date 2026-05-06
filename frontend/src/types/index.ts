@@ -6,6 +6,7 @@ export interface User {
   profile_picture?: string;
   is_active: boolean;
   created_at: string;
+  subscription: string;
 }
 
 export interface AuthToken {

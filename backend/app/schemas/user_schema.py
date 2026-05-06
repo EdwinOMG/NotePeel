@@ -13,6 +13,7 @@ class UserResponse(BaseModel):
     profile_picture: Optional[str] = None
     is_active: bool
     created_at: datetime
+    subscription: str = "free"
 
 
 class Token(BaseModel):
