@@ -127,20 +127,6 @@ Three prompt variants support different note contexts:
 
 ---
 
-## Screenshots
-
-> _Add screenshots here — e.g. Dashboard editor, Notebooks grid, Mobile view, Flashcard modal_
-
-| Dashboard Editor | Notebooks |
-|---|---|
-| ![Dashboard](screenshots/dashboard.png) | ![Notebooks](screenshots/notebooks.png) |
-
-| Mobile Home | Flashcards |
-|---|---|
-| ![Mobile](screenshots/mobile.png) | ![Flashcards](screenshots/flashcards.png) |
-
----
-
 ## API Reference
 
 All endpoints that require authentication expect an `Authorization: Bearer <token>` header.
@@ -275,9 +261,9 @@ The Dashboard is a full document editor built in React without any UI framework.
 | Feature | Free | Pro | Premium |
 |---|---|---|---|
 | Note scanning (OCR) | ✅ Limited | ✅ More requests | ✅ Unlimited |
-| Summarize | ❌ | ✅ | ✅ |
+| Summarize | ✅  | ✅ | ✅ |
 | Flashcards | ❌ | ✅ | ✅ |
-| Explain selection | ❌ | ✅ | ✅ |
+| Explain selection | ✅ | ✅ | ✅ |
 | Note Chatbot | ❌ | ❌ | ✅ |
 | Daily request limit | Low | Higher | Unlimited |
 
