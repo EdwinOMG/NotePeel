@@ -19,6 +19,8 @@ export default function MobileNotebookView({ notebookId, onBack, onOpenNote, dar
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  const canEdit = notebook?.role === 'owner' || notebook?.role === 'editor';
+
   const theme = {
     bg: darkMode ? '#1a1a2e' : '#FFF8E1',
     cardBg: darkMode ? '#252542' : '#ffffff',
@@ -170,25 +172,27 @@ export default function MobileNotebookView({ notebookId, onBack, onOpenNote, dar
             <div style={{ fontSize: '64px', marginBottom: '16px' }}>📝</div>
             <h3 style={{ color: theme.text, fontFamily: "'Inter', sans-serif", fontWeight: 600, margin: '0 0 8px' }}>No notes yet</h3>
             <p style={{ fontFamily: "'Inter', sans-serif", fontSize: '14px', margin: '0 0 24px' }}>
-              Upload a photo of your notes to get started!
+              {canEdit ? 'Upload a photo of your notes to get started!' : 'No notes have been added yet.'}
             </p>
-            <button
-              onClick={() => setShowTypeSheet(true)}
-              style={{
-                padding: '16px 32px',
-                background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                color: '#5D4037',
-                border: 'none',
-                borderRadius: '16px',
-                fontWeight: 700,
-                fontSize: '16px',
-                cursor: 'pointer',
-                fontFamily: "'Inter', sans-serif",
-                boxShadow: '0 4px 16px rgba(255, 152, 0, 0.3)',
-              }}
-            >
-              📸 Upload First Note
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setShowTypeSheet(true)}
+                style={{
+                  padding: '16px 32px',
+                  background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                  color: '#5D4037',
+                  border: 'none',
+                  borderRadius: '16px',
+                  fontWeight: 700,
+                  fontSize: '16px',
+                  cursor: 'pointer',
+                  fontFamily: "'Inter', sans-serif",
+                  boxShadow: '0 4px 16px rgba(255, 152, 0, 0.3)',
+                }}
+              >
+                📸 Upload First Note
+              </button>
+            )}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -249,7 +253,7 @@ export default function MobileNotebookView({ notebookId, onBack, onOpenNote, dar
       </div>
 
       {/* FAB Upload Button */}
-      {notebook.notes.length > 0 && (
+      {canEdit && notebook.notes.length > 0 && (
         <button
           onClick={() => setShowTypeSheet(true)}
           disabled={uploading}

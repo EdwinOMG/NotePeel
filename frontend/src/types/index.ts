@@ -24,6 +24,7 @@ export interface Note {
   subject?: string;
   topic?: string;
   tags?: string;
+  role?: string;
 }
 
 export interface NoteWithImage extends Note {

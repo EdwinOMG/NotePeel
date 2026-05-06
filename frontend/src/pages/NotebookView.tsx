@@ -150,6 +150,7 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
   };
 
   const isOwner = notebook?.role === 'owner';
+  const canEdit = notebook?.role === 'owner' || notebook?.role === 'editor';
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
@@ -274,59 +275,63 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
           </div>
           
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {/* Note Type Selector */}
-            <select
-              value={noteType}
-              onChange={(e) => setNoteType(e.target.value as 'default' | 'lecture' | 'meeting')}
-              style={{
-                padding: '8px 12px',
-                border: `1px solid ${theme.border}`,
-                borderRadius: '6px',
-                background: darkMode ? '#3f3f5a' : '#FFF8E1',
-                fontSize: '14px',
-                color: theme.text
-              }}
-            >
-              <option value="default">📝 Default</option>
-              <option value="lecture">📚 Lecture</option>
-              <option value="meeting">📋 Meeting</option>
-            </select>
+            {canEdit && (
+              <>
+                {/* Note Type Selector */}
+                <select
+                  value={noteType}
+                  onChange={(e) => setNoteType(e.target.value as 'default' | 'lecture' | 'meeting')}
+                  style={{
+                    padding: '8px 12px',
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '6px',
+                    background: darkMode ? '#3f3f5a' : '#FFF8E1',
+                    fontSize: '14px',
+                    color: theme.text
+                  }}
+                >
+                  <option value="default">📝 Default</option>
+                  <option value="lecture">📚 Lecture</option>
+                  <option value="meeting">📋 Meeting</option>
+                </select>
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              style={{
-                padding: '10px 20px',
-                background: uploading ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                color: '#5D4037',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                fontWeight: 'bold',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              {uploading ? '🍌 Peeling...' : '+ Upload Note'}
-            </button>
-            
-            <button
-              onClick={loadAvailableNotes}
-              style={{
-                padding: '10px 20px',
-                background: theme.buttonBg,
-                border: `1px solid ${theme.border}`,
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                color: theme.text
-              }}
-            >
-              📎 Add Existing
-            </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  style={{
+                    padding: '10px 20px',
+                    background: uploading ? '#ccc' : 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                    color: '#5D4037',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: uploading ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {uploading ? '🍌 Peeling...' : '+ Upload Note'}
+                </button>
+                
+                <button
+                  onClick={loadAvailableNotes}
+                  style={{
+                    padding: '10px 20px',
+                    background: theme.buttonBg,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: theme.text
+                  }}
+                >
+                  📎 Add Existing
+                </button>
+              </>
+            )}
 
             <button
               onClick={() => setShowShareModal(true)}
@@ -390,36 +395,40 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
           }}>
             <div style={{ fontSize: '64px', marginBottom: '20px' }}>📝</div>
             <h3 style={{ color: theme.text, marginBottom: '10px' }}>No notes in this notebook</h3>
-            <p style={{ color: theme.textSecondary, marginBottom: '20px' }}>Upload a new note or add an existing one!</p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  padding: '12px 24px',
-                  background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                  color: '#5D4037',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer'
-                }}
-              >
-                + Upload Note
-              </button>
-              <button
-                onClick={loadAvailableNotes}
-                style={{
-                  padding: '12px 24px',
-                  background: theme.buttonBg,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  color: theme.text
-                }}
-              >
-                📎 Add Existing
-              </button>
-            </div>
+            <p style={{ color: theme.textSecondary, marginBottom: '20px' }}>
+              {canEdit ? 'Upload a new note or add an existing one!' : 'No notes have been added yet.'}
+            </p>
+            {canEdit && (
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    padding: '12px 24px',
+                    background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
+                    color: '#5D4037',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  + Upload Note
+                </button>
+                <button
+                  onClick={loadAvailableNotes}
+                  style={{
+                    padding: '12px 24px',
+                    background: theme.buttonBg,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    color: theme.text
+                  }}
+                >
+                  📎 Add Existing
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -455,20 +464,22 @@ export default function NotebookView({ notebookId, onBack, onOpenNote, onCreateN
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleRemoveNote(note.id); }}
-                    style={{
-                      padding: '6px 12px',
-                      background: darkMode ? 'rgba(198, 40, 40, 0.2)' : '#ffebee',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      color: '#c62828'
-                    }}
-                  >
-                    Remove
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRemoveNote(note.id); }}
+                      style={{
+                        padding: '6px 12px',
+                        background: darkMode ? 'rgba(198, 40, 40, 0.2)' : '#ffebee',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        color: '#c62828'
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

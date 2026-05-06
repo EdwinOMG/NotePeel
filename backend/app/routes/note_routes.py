@@ -133,13 +133,15 @@ def get_note(
 ):
     """Get a specific note."""
     note = note_controller.get_note(db, note_id, current_user)
+    role = note_controller.get_note_role(db, note_id, current_user)
     return {
         "id": note.id,
         "title": note.title,
         "raw_text": note.raw_text,
         "structured_text": note.structured_text,
         "status": note.status.value if hasattr(note.status, 'value') else str(note.status),
-        "created_at": note.created_at
+        "created_at": note.created_at,
+        "role": role,
     }
 
 

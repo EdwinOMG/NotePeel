@@ -208,14 +208,20 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
     catch (err) { setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed')); }
   };
 
+  const noteRole = selectedNote?.role || 'owner';
+  const canEditNote = noteRole === 'owner' || noteRole === 'editor';
+
+  // Default viewers to the AI tab since editing tabs are hidden
+  useEffect(() => { if (!canEditNote) setActiveTab('ai'); }, [canEditNote]);
+
   const saveNote = async () => {
-    if (!selectedNote || !editorRef.current) return;
+    if (!selectedNote || !editorRef.current || !canEditNote) return;
     try { const txt = editorRef.current.innerHTML; await notesAPI.update(selectedNote.id, { structured_text: txt }); setSelectedNote({ ...selectedNote, structured_text: txt }); setMessage('💾 Saved!'); setTimeout(() => setMessage(''), 3000); }
     catch (err) { setMessage('Error: ' + (err instanceof Error ? err.message : 'Failed')); }
   };
 
   const autoSave = async () => {
-    if (!selectedNote || !editorRef.current) return;
+    if (!selectedNote || !editorRef.current || !canEditNote) return;
     try { const txt = editorRef.current.innerHTML; if (txt !== selectedNote.structured_text) { await notesAPI.update(selectedNote.id, { structured_text: txt }); setSelectedNote(p => p ? { ...p, structured_text: txt } : null); } } catch {}
   };
 
@@ -580,8 +586,9 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         }
       }
     }
-    if (e.key==='Tab'){e.preventDefault();if(e.shiftKey)execCommand('outdent');else{const sel=window.getSelection();if(sel?.anchorNode?.parentElement?.closest('ul, ol'))execCommand('indent');else document.execCommand('insertText',false,'\u00a0\u00a0\u00a0\u00a0');}}
+    if (e.key==='Tab'){e.preventDefault();if(!canEditNote)return;if(e.shiftKey)execCommand('outdent');else{const sel=window.getSelection();if(sel?.anchorNode?.parentElement?.closest('ul, ol'))execCommand('indent');else document.execCommand('insertText',false,'\u00a0\u00a0\u00a0\u00a0');}}
     if(e.ctrlKey&&e.key==='s'){e.preventDefault();saveNote();}
+    if(!canEditNote)return;
     if(e.ctrlKey&&e.key==='b'){e.preventDefault();execCommand('bold');}
     if(e.ctrlKey&&e.key==='i'){e.preventDefault();execCommand('italic');}
     if(e.ctrlKey&&e.key==='u'){e.preventDefault();execCommand('underline');}
@@ -609,15 +616,17 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
         <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
           {onBack&&<button onClick={async()=>{await autoSave();onBack();}} style={{background:'rgba(255,255,255,0.12)',border:'none',padding:'2px 10px',borderRadius:'3px',cursor:'pointer',fontSize:'11px',color:'#fff'}}>← Back</button>}
           <img src="/monkey-loading.png" alt="" style={{width:'18px',height:'18px',objectFit:'contain'}} />
-          <div style={{display:'flex',gap:'2px',marginLeft:'4px'}}>
-            <button onClick={saveNote} title="Save" style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',fontSize:'13px',color:'#fff',opacity:0.8}}>💾</button>
-            <button onClick={()=>execCommand('undo')} title="Undo" style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',fontSize:'13px',color:'#fff',opacity:0.8}}>↩</button>
-            <button onClick={()=>execCommand('redo')} title="Redo" style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',fontSize:'13px',color:'#fff',opacity:0.8}}>↪</button>
-          </div>
-          {isEditingTitle?(
+          {canEditNote && (
+            <div style={{display:'flex',gap:'2px',marginLeft:'4px'}}>
+              <button onClick={saveNote} title="Save" style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',fontSize:'13px',color:'#fff',opacity:0.8}}>💾</button>
+              <button onClick={()=>execCommand('undo')} title="Undo" style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',fontSize:'13px',color:'#fff',opacity:0.8}}>↩</button>
+              <button onClick={()=>execCommand('redo')} title="Redo" style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',fontSize:'13px',color:'#fff',opacity:0.8}}>↪</button>
+            </div>
+          )}
+          {isEditingTitle && canEditNote?(
             <input ref={titleInputRef} value={titleDraft} onChange={e=>setTitleDraft(e.target.value)} onBlur={commitTitle} onKeyDown={e=>{if(e.key==='Enter')commitTitle();if(e.key==='Escape')setIsEditingTitle(false);}} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',borderRadius:'3px',color:'#fff',fontSize:'12px',padding:'1px 8px',outline:'none',width:'200px',marginLeft:'8px'}} />
           ):(
-            <span onClick={startEditTitle} style={{color:'rgba(255,255,255,0.85)',fontSize:'12px',marginLeft:'8px',fontWeight:500,cursor:'pointer',padding:'1px 4px',borderRadius:'3px'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.1)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'} title="Click to rename">{selectedNote?.title||'Untitled'}</span>
+            <span onClick={canEditNote ? startEditTitle : undefined} style={{color:'rgba(255,255,255,0.85)',fontSize:'12px',marginLeft:'8px',fontWeight:500,cursor:canEditNote?'pointer':'default',padding:'1px 4px',borderRadius:'3px'}} onMouseEnter={e=>{if(canEditNote)e.currentTarget.style.background='rgba(255,255,255,0.1)';}} onMouseLeave={e=>e.currentTarget.style.background='transparent'} title={canEditNote?"Click to rename":"View only"}>{selectedNote?.title||'Untitled'}{!canEditNote&&<span style={{fontSize:'10px',marginLeft:'6px',opacity:0.6}}>(view only)</span>}</span>
           )}
         </div>
         <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
@@ -632,14 +641,17 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
           <button onClick={e=>{e.stopPropagation();setActiveMenu(activeMenu==='file'?null:'file');}} style={{padding:'6px 16px',background:activeMenu==='file'?'#FF9800':(darkMode?'#5D4037':'#795548'),border:'none',cursor:'pointer',fontSize:'12px',color:'#fff',fontWeight:600,borderRadius:'3px 3px 0 0',marginRight:'2px'}}>File</button>
           {activeMenu==='file'&&(
             <div style={{position:'absolute',top:'100%',left:0,background:t.menuBg,border:`1px solid ${t.border}`,boxShadow:'0 8px 30px rgba(0,0,0,0.18)',minWidth:'260px',zIndex:1000,borderRadius:'0 0 4px 4px'}}>
-              {[{icon:'📷',label:'Upload New Note',sc:'Ctrl+U',fn:()=>fileInputRef.current?.click()},{icon:'📄',label:'New Blank Note',sc:'Ctrl+N',fn:newNote},{d:true},{icon:'📁',label:'Open Note...',sc:'Ctrl+O',fn:()=>setShowNotesPanel(true)},{icon:'💾',label:'Save',sc:'Ctrl+S',fn:saveNote},{d:true},{icon:'📄',label:'Export as PDF',fn:exportToPDF},{icon:'📝',label:'Export as TXT',fn:exportToTXT},{icon:'🌐',label:'Export as HTML',fn:exportToHTML},{d:true},{icon:'🔍',label:'Find & Replace',sc:'Ctrl+F',fn:()=>setShowFindReplace(true)},{icon:'🏷️',label:'Note Info',fn:()=>setShowNoteInfo(!showNoteInfo)}].map((item,i)=>'d' in item?<div key={i} style={{borderTop:`1px solid ${t.border}`,margin:'4px 0'}}/>:(
+              {(canEditNote
+                ? [{icon:'📷',label:'Upload New Note',sc:'Ctrl+U',fn:()=>fileInputRef.current?.click()},{icon:'📄',label:'New Blank Note',sc:'Ctrl+N',fn:newNote},{d:true},{icon:'📁',label:'Open Note...',sc:'Ctrl+O',fn:()=>setShowNotesPanel(true)},{icon:'💾',label:'Save',sc:'Ctrl+S',fn:saveNote},{d:true},{icon:'📄',label:'Export as PDF',fn:exportToPDF},{icon:'📝',label:'Export as TXT',fn:exportToTXT},{icon:'🌐',label:'Export as HTML',fn:exportToHTML},{d:true},{icon:'🔍',label:'Find & Replace',sc:'Ctrl+F',fn:()=>setShowFindReplace(true)},{icon:'🏷️',label:'Note Info',fn:()=>setShowNoteInfo(!showNoteInfo)}]
+                : [{icon:'📁',label:'Open Note...',sc:'Ctrl+O',fn:()=>setShowNotesPanel(true)},{d:true},{icon:'📄',label:'Export as PDF',fn:exportToPDF},{icon:'📝',label:'Export as TXT',fn:exportToTXT},{icon:'🌐',label:'Export as HTML',fn:exportToHTML},{d:true},{icon:'🏷️',label:'Note Info',fn:()=>setShowNoteInfo(!showNoteInfo)}]
+              ).map((item,i)=>'d' in item?<div key={i} style={{borderTop:`1px solid ${t.border}`,margin:'4px 0'}}/>:(
                 <div key={i} onClick={()=>{item.fn();setActiveMenu(null);}} style={{padding:'9px 20px',cursor:'pointer',fontSize:'13px',display:'flex',justifyContent:'space-between',color:t.text}} onMouseEnter={e=>e.currentTarget.style.background=t.menuHover} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <span>{item.icon} {item.label}</span>{'sc' in item&&<span style={{color:t.textSecondary,fontSize:'11px'}}>{item.sc}</span>}
                 </div>))}
             </div>
           )}
         </div>
-        {allTabs.map(tab=>(
+        {(canEditNote ? allTabs : ['ai'] as const).map(tab=>(
           <button key={tab} onClick={()=>{setActiveTab(tab);setRibbonCollapsed(activeTab===tab?!ribbonCollapsed:false);}} style={{padding:'6px 16px',border:`1px solid ${activeTab===tab?t.ribbonBorder:'transparent'}`,borderBottom:activeTab===tab?`1px solid ${t.ribbonBg}`:`1px solid ${t.ribbonBorder}`,background:activeTab===tab?t.tabActive:'transparent',cursor:'pointer',fontSize:'12px',color:tab==='ai'?t.accent:(activeTab===tab?t.tabActiveText:t.tabText),fontWeight:activeTab===tab?600:400,borderRadius:'3px 3px 0 0',marginRight:'1px',marginBottom:activeTab===tab?'-1px':'0',zIndex:activeTab===tab?2:1,position:'relative'}}>
             {tab==='ai'?'🧠 AI':tab.charAt(0).toUpperCase()+tab.slice(1)}
           </button>
@@ -649,7 +661,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
       </div>
 
       {/* RIBBON PANEL */}
-      {!ribbonCollapsed&&(
+      {(canEditNote||activeTab==='ai')&&!ribbonCollapsed&&(
         <div style={{background:t.ribbonBg,borderBottom:`1px solid ${t.ribbonBorder}`,padding:'4px 12px 2px',display:'flex',alignItems:'flex-start',minHeight:'82px',overflowX:'auto'}}>
           {activeTab==='home'&&(<>
             <div style={{display:'flex',flexDirection:'column',alignItems:'center',marginRight:'4px'}}><div style={{display:'flex',alignItems:'flex-start',gap:'2px'}}><RibbonBtn icon="📋" label="Paste" onClick={()=>navigator.clipboard.readText().then(t=>document.execCommand('insertText',false,t)).catch(()=>{})}/><div style={{display:'flex',flexDirection:'column',gap:'1px'}}><RibbonBtn icon="✂️" label="Cut" onClick={()=>document.execCommand('cut')} small/><RibbonBtn icon="📑" label="Copy" onClick={()=>document.execCommand('copy')} small/></div></div><GroupLabel>Clipboard</GroupLabel></div><Divider/>
@@ -790,7 +802,7 @@ export default function Dashboard({ userEmail, onLogout, initialNoteId, notebook
             </div>
             {/* Page container */}
             <div style={{position:'relative'}}>
-              <div ref={editorRef} contentEditable className="notepeel-editor"
+              <div ref={editorRef} contentEditable={canEditNote} className="notepeel-editor"
                 style={{padding:margins[pageMargin],fontSize:'16px',fontFamily:fontFamily,lineHeight:lineSpacing,outline:'none',wordWrap:'break-word',overflowWrap:'break-word',whiteSpace:'normal',color:t.text,minHeight:`${PAGE_HEIGHT}px`,position:'relative',zIndex:1,columnCount:columnCount,columnGap:'30px',background:pageColor||t.editorBg,boxShadow:'0 2px 12px rgba(0,0,0,0.08)',borderRadius:'0 0 4px 4px',border:pageBorderEnabled?`3px solid ${darkMode?'#666':'#999'}`:'none'}}
                 onKeyDown={handleKeyDown} onInput={updateCounts} suppressContentEditableWarning/>
               {/* Watermark overlay */}

@@ -7,7 +7,7 @@ import io
 
 from app.models.note import Note, ProcessingStatus
 from app.models.user import User
-from app.models.notebook import note_notebooks, NotebookCollaborator
+from app.models.notebook import note_notebooks, NotebookCollaborator, CollaboratorRole
 from app.schemas.note_schema import NoteUpdate
 from app.services.storage import upload_image, delete_image, get_fresh_url
 
@@ -428,6 +428,7 @@ class NoteController:
     @staticmethod
     def get_note_with_image(db: Session, note_id: int, user: User) -> dict:
         note = NoteController.get_note(db, note_id, user)
+        role = NoteController.get_note_role(db, note_id, user)
 
         # Generate a fresh presigned URL from the stored key
         fresh_url = get_fresh_url(note.image_key) if note.image_key else None
@@ -447,11 +448,19 @@ class NoteController:
             "error_message": note.error_message,
             "created_at": note.created_at,
             "processed_at": note.processed_at,
+            "role": role,
         }
 
     @staticmethod
     def delete_note(db: Session, note_id: int, user: User) -> None:
         note = NoteController.get_note(db, note_id, user)
+
+        # Only the note owner can delete it
+        if note.owner_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the note owner can delete it"
+            )
 
         # Delete from R2 before removing DB record
         if note.image_key:
@@ -730,8 +739,44 @@ class NoteController:
         )
 
     @staticmethod
+    def get_note_role(db: Session, note_id: int, user: User) -> str:
+        """Return the user's role for a note: 'owner', 'editor', or 'viewer'."""
+        note = db.query(Note).filter(Note.id == note_id).first()
+        if not note:
+            return "viewer"
+        if note.owner_id == user.id:
+            return "owner"
+
+        # Find the highest role across all notebooks this note is in
+        collabs = db.query(NotebookCollaborator.role).join(
+            note_notebooks,
+            NotebookCollaborator.notebook_id == note_notebooks.c.notebook_id
+        ).filter(
+            note_notebooks.c.note_id == note_id,
+            NotebookCollaborator.user_id == user.id
+        ).all()
+
+        roles = [c[0] for c in collabs]
+        if CollaboratorRole.EDITOR in roles:
+            return "editor"
+        if CollaboratorRole.VIEWER in roles:
+            return "viewer"
+        return "viewer"
+
+    @staticmethod
+    def _require_edit_access(db: Session, note_id: int, user: User):
+        """Raise 403 if the user is only a viewer for this note."""
+        role = NoteController.get_note_role(db, note_id, user)
+        if role == "viewer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You have view-only access to this note"
+            )
+
+    @staticmethod
     def update_note(db: Session, note_id: int, update_data: NoteUpdate, user: User) -> Note:
         note = NoteController.get_note(db, note_id, user)
+        NoteController._require_edit_access(db, note_id, user)
         update_dict = update_data.model_dump(exclude_unset=True)
         for field, value in update_dict.items():
             setattr(note, field, value)
