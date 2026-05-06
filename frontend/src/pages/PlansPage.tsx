@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useUsage } from '../hooks/useUsage';
 import { stripeAPI } from '../services/api';
 
@@ -18,10 +18,77 @@ const PRICE_IDS = {
 };
 
 export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isMobile = false }: PlansPageProps) {
-  const { usage } = useUsage(localStorage.getItem('token'));
+  const { usage, refresh: refreshUsage } = useUsage(localStorage.getItem('token'));
   const currentPlan = usage?.plan || 'free';
   const [loading, setLoading] = useState<string | null>(null);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly');
+  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // ── Post-checkout sync ─────────────────────────────────────────
+  // After Stripe redirects back with ?checkout=success, poll the /sync
+  // endpoint to update the user's plan. This is the primary mechanism
+  // that ensures plan activation — it doesn't rely on the webhook.
+  const syncAfterCheckout = useCallback(async () => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get('checkout');
+
+    if (checkoutStatus === 'success') {
+      // Clean up the URL
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+
+      setLoading('syncing');
+      setStatusMessage({ type: 'success', text: 'Payment successful! Activating your plan...' });
+
+      // Retry sync a few times — webhook may not have fired yet
+      let synced = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const result = await stripeAPI.syncSubscription();
+          if (result.plan !== 'free') {
+            synced = true;
+            setStatusMessage({
+              type: 'success',
+              text: `You're now on the ${result.plan.charAt(0).toUpperCase() + result.plan.slice(1)} plan!`,
+            });
+            refreshUsage();
+            break;
+          }
+        } catch {
+          // Retry
+        }
+        // Wait before retrying (1s, 2s, 3s, 4s, 5s)
+        await new Promise(r => setTimeout(r, (attempt + 1) * 1000));
+      }
+
+      if (!synced) {
+        // Last attempt — just refresh usage in case webhook came through
+        refreshUsage();
+        setStatusMessage({
+          type: 'success',
+          text: 'Payment received! Your plan will activate momentarily.',
+        });
+      }
+
+      setLoading(null);
+    } else if (checkoutStatus === 'cancel') {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+      setStatusMessage({ type: 'error', text: 'Checkout was cancelled.' });
+    }
+  }, [refreshUsage]);
+
+  useEffect(() => {
+    syncAfterCheckout();
+  }, [syncAfterCheckout]);
+
+  // Clear status message after 8 seconds
+  useEffect(() => {
+    if (statusMessage) {
+      const timer = setTimeout(() => setStatusMessage(null), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [statusMessage]);
 
   const theme = {
     bg: darkMode ? '#1a1a2e' : 'linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%)',
@@ -85,14 +152,22 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
 
   const handleSelectPlan = async (plan: typeof plans[0]) => {
     if (plan.id === currentPlan) return;
+    setStatusMessage(null);
 
     if (plan.id === 'free') {
       try {
         setLoading('free');
         await stripeAPI.cancelSubscription();
-        alert('Your subscription will cancel at the end of the current billing period.');
-      } catch (err) {
-        alert('Failed to cancel. Please try again or contact support.');
+        setStatusMessage({
+          type: 'success',
+          text: 'Your subscription will cancel at the end of the current billing period.',
+        });
+        refreshUsage();
+      } catch (err: any) {
+        setStatusMessage({
+          type: 'error',
+          text: err?.message || 'Failed to cancel. Please try again or contact support.',
+        });
       } finally {
         setLoading(null);
       }
@@ -100,26 +175,37 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
     }
 
     if (!plan.stripePriceId) {
-      alert('Price not configured. Please set the Stripe Price IDs in your environment variables.');
+      setStatusMessage({
+        type: 'error',
+        text: 'Price not configured. Please contact support.',
+      });
       return;
     }
 
     try {
       setLoading(plan.id);
 
-      // If user already has a paid subscription, switch the plan instead of creating a new checkout
       if (currentPlan === 'pro' || currentPlan === 'premium') {
+        // Already subscribed — switch plan via API
         const { plan: newPlan } = await stripeAPI.changePlan(plan.stripePriceId);
-        alert(`Your plan has been changed to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)}. Any proration will appear on your next invoice.`);
-        window.location.reload();
+        setStatusMessage({
+          type: 'success',
+          text: `Plan changed to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)}! Proration will appear on your next invoice.`,
+        });
+        refreshUsage();
+        setLoading(null);
       } else {
         // First-time purchase — redirect to Stripe Checkout
         const { checkout_url } = await stripeAPI.createCheckout(plan.stripePriceId);
         window.location.href = checkout_url;
+        // Don't clear loading — page is navigating away
       }
     } catch (err: any) {
       console.error('Plan change error:', err);
-      alert(`Failed to change plan: ${err?.message || 'Unknown error'}. Please try again.`);
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Something went wrong. Please try again.',
+      });
       setLoading(null);
     }
   };
@@ -129,8 +215,11 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
       setLoading('manage');
       const { portal_url } = await stripeAPI.createPortal();
       window.location.href = portal_url;
-    } catch (err) {
-      alert('Failed to open billing portal. Please try again.');
+    } catch {
+      setStatusMessage({
+        type: 'error',
+        text: 'Failed to open billing portal. Please try again.',
+      });
       setLoading(null);
     }
   };
@@ -192,6 +281,26 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
         maxWidth: '1000px', margin: '0 auto',
         padding: isMobile ? '24px 16px' : '48px 32px',
       }}>
+        {/* Status Banner */}
+        {statusMessage && (
+          <div style={{
+            marginBottom: '24px', padding: '14px 20px', borderRadius: '12px',
+            background: statusMessage.type === 'success'
+              ? (darkMode ? '#1a2e1a' : '#e8f5e9')
+              : (darkMode ? '#2e1a1a' : '#fce4ec'),
+            color: statusMessage.type === 'success'
+              ? (darkMode ? '#86efac' : '#2e7d32')
+              : (darkMode ? '#fca5a5' : '#c62828'),
+            fontSize: '14px', fontWeight: 500, textAlign: 'center',
+            animation: 'fadeIn 0.3s ease-out',
+          }}>
+            {loading === 'syncing' && (
+              <span style={{ marginRight: '8px', display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+            )}
+            {statusMessage.text}
+          </div>
+        )}
+
         {/* Title */}
         <div style={{ textAlign: 'center', marginBottom: isMobile ? '24px' : '36px' }}>
           <h2 style={{
@@ -220,12 +329,8 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
                   borderRadius: '26px', border: 'none',
                   fontSize: '15px', fontWeight: 600,
                   cursor: 'pointer',
-                  background: billingPeriod === 'monthly'
-                    ? (darkMode ? '#6C3FD1' : '#6C3FD1')
-                    : 'transparent',
-                  color: billingPeriod === 'monthly'
-                    ? '#fff'
-                    : (darkMode ? '#a1a1aa' : '#555'),
+                  background: billingPeriod === 'monthly' ? '#6C3FD1' : 'transparent',
+                  color: billingPeriod === 'monthly' ? '#fff' : (darkMode ? '#a1a1aa' : '#555'),
                   transition: 'all 0.2s ease',
                 }}
               >
@@ -238,12 +343,8 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
                   borderRadius: '26px', border: 'none',
                   fontSize: '15px', fontWeight: 600,
                   cursor: 'pointer',
-                  background: billingPeriod === 'annual'
-                    ? (darkMode ? '#6C3FD1' : '#6C3FD1')
-                    : 'transparent',
-                  color: billingPeriod === 'annual'
-                    ? '#fff'
-                    : (darkMode ? '#a1a1aa' : '#555'),
+                  background: billingPeriod === 'annual' ? '#6C3FD1' : 'transparent',
+                  color: billingPeriod === 'annual' ? '#fff' : (darkMode ? '#a1a1aa' : '#555'),
                   display: 'flex', alignItems: 'center', gap: '8px',
                   transition: 'all 0.2s ease',
                 }}
@@ -388,7 +489,7 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
                   ) : (
                     <button
                       onClick={() => handleSelectPlan(plan)}
-                      disabled={isCurrent || loading === plan.id}
+                      disabled={isCurrent || !!loading}
                       style={{
                         width: '100%', padding: '14px',
                         background: isCurrent
@@ -405,12 +506,12 @@ export default function PlansPage({ userEmail: _userEmail, onBack, darkMode, isM
                             : theme.textSecondary,
                         border: 'none', borderRadius: '12px',
                         fontSize: '14px', fontWeight: 700,
-                        cursor: isCurrent ? 'default' : loading === plan.id ? 'wait' : 'pointer',
-                        opacity: isCurrent ? 0.7 : 1,
+                        cursor: isCurrent || !!loading ? 'default' : 'pointer',
+                        opacity: isCurrent ? 0.7 : loading ? 0.6 : 1,
                         transition: 'transform 0.15s, box-shadow 0.15s',
                       }}
                       onMouseEnter={(e) => {
-                        if (!isCurrent) {
+                        if (!isCurrent && !loading) {
                           e.currentTarget.style.transform = 'translateY(-1px)';
                           e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
                         }

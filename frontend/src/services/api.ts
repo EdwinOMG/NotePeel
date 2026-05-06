@@ -270,6 +270,7 @@ export const stripeAPI = {
       body: JSON.stringify({ price_id }),
     }),
 
+  /** Poll Stripe directly to sync subscription state (fallback for webhooks). */
   syncSubscription: (): Promise<{ plan: string; synced: boolean }> =>
     fetchWithAuth('/api/stripe/sync', { method: 'POST' }),
 };
